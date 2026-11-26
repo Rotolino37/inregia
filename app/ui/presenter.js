@@ -2,7 +2,9 @@
 /* InRegia - finestra relatore */
 const $ = id => document.getElementById(id);
 const send = m => DP.send('p2a', m);
-const setBtn = (id, icon, label) => { $(id).innerHTML = ic(icon) + (label ? '<span>' + esc(label) + '</span>' : ''); };
+/* Aggiorna il contenuto solo se cambia: sostituire il nodo tra mousedown e mouseup fa perdere il click. */
+const setHTML = (el, h) => { if (el && el.__h !== h) { el.innerHTML = h; el.__h = h; } };
+const setBtn = (id, icon, label) => setHTML($(id), ic(icon) + (label ? '<span>' + esc(label) + '</span>' : ''));
 
 let M = null, BASE = '', N = 0, ST = {}, SET = {}, DECK = '';
 const S = { n: 1, step: 0, cover: null, ptr: false, visitStarted: false };
@@ -37,7 +39,7 @@ let saveT = null;
 function save() {
   clearTimeout(saveT);
   saveT = setTimeout(() => DP.send('deck:state', { n: S.n, mix: MIX, eqName: EQNAME, queue: QUEUE, excluded: [...EXCL], manual: [...MANUAL], sources: SRC,
-    xf: MO.xf, shuffle: MO.shuffle, repeat: MO.repeat, nfs: NFS, displayId: AUD.displayId, warnVideo: WARN_VIDEO }), 400);
+    xf: MO.xf, shuffle: MO.shuffle, repeat: MO.repeat, nfs: NFS, displayId: AUD.displayId != null ? AUD.displayId : ST.displayId, warnVideo: WARN_VIDEO }), 400);
 }
 
 /* =============================================================== anteprime */
@@ -161,7 +163,7 @@ function updateMediaUI() {
   if (!md) return;
   const dur = st && st.dur ? st.dur : (md.dur || 0), cur = st ? st.cur : 0;
   const playing = st && !st.paused && !st.ended;
-  $('mPlay').innerHTML = ic(playing ? 'pause' : 'play'); $('mPlay').title = playing ? 'Pausa (P)' : 'Avvia (P)';
+  setHTML($('mPlay'), ic(playing ? 'pause' : 'play')); $('mPlay').title = playing ? 'Pausa (P)' : 'Avvia (P)';
   $('mTime').textContent = fmtT(cur) + ' / ' + fmtT(dur);
   if (!seeking) $('mSeek').value = dur ? Math.round(cur / dur * 1000) : 0;
   s.media.forEach((m, i) => {
@@ -182,19 +184,16 @@ $('mSeek').addEventListener('input', e => { seeking = true; const md = slide(S.n
 $('mSeek').addEventListener('change', () => { seeking = false; });
 
 /* =============================================================== proiettore */
+const dispName = d => d ? (d.id === AUD.presenterDisplay ? 'Schermo ' + d.n + ' (relatore)' : 'Schermo ' + d.n) : '';
 function audUI() {
-  const sel = $('selDisp');
-  sel.innerHTML = '';
-  AUD.displays.forEach(d => { const o = document.createElement('option'); o.value = d.id; o.textContent = (d.id === AUD.presenterDisplay ? 'Questo schermo' : 'Schermo ' + d.n) + ' (' + d.w + 'x' + d.h + ')'; sel.appendChild(o); });
-  const def = AUD.displays.find(d => d.id !== AUD.presenterDisplay) || AUD.displays[0];
-  const cur = AUD.displayId != null && AUD.displays.some(d => d.id === AUD.displayId) ? AUD.displayId : (def ? def.id : null);
-  if (cur != null) sel.value = String(cur);
   const same = AUD.open && AUD.displayId === AUD.presenterDisplay;
+  const d = AUD.displays.find(x => x.id === AUD.displayId);
   const ps = $('projState');
   ps.className = 'pill ' + (AUD.open ? 'live' : '');
-  ps.textContent = AUD.open ? (same ? 'In onda su questo schermo' : 'In onda') : 'Proiettore spento';
+  ps.textContent = AUD.open ? (same ? 'In onda su questo schermo' : 'In onda: ' + dispName(d)) : 'Proiettore spento';
   if (AUD.open) setBtn('bProj', 'x', 'Spegni proiettore'); else setBtn('bProj', 'monitor', 'Proietta');
   $('bProj').className = 'btn sm' + (AUD.open ? '' : ' primary');
+  $('bProj').title = AUD.open ? 'Spegni il proiettore e resta sul relatore (Esc)' : 'Scegli lo schermo e avvia la proiezione (F5)';
   $('bFs').style.display = AUD.open && !same && !AUD.fullscreen ? '' : 'none';
   setBtn('bLock', AUD.locked ? 'lock' : 'unlock', AUD.locked ? 'Bloccato' : 'Blocca');
   $('bLock').className = 'btn sm' + (AUD.locked ? ' live' : '');
@@ -202,22 +201,51 @@ function audUI() {
   $('bLock').disabled = !AUD.open;
   $('bLock').title = AUD.open ? 'Lucchetto: blocca qualsiasi azione sullo schermo del proiettore (Ctrl+L)' : 'Disponibile quando il proiettore è acceso';
 }
-DP.on('aud-state', s => { const first = !AUD.displays.length; Object.assign(AUD, s); if (s.displayId == null && ST.displayId != null) AUD.displayId = ST.displayId; audUI(); if (first) autoOpen(); });
-let autoDone = false;
-function autoOpen() {
-  if (autoDone) return; autoDone = true;
-  const others = AUD.displays.filter(d => d.id !== AUD.presenterDisplay);
-  if (SET.autoProjector !== false && others.length) {
-    const want = ST.displayId != null && others.some(d => d.id === ST.displayId) ? ST.displayId : others[0].id;
-    DP.invoke('aud:show', want).then(() => { if (SET.lockOnOpen) DP.invoke('aud:lock', true); });
-  } else if (!others.length) toast('Un solo schermo collegato: "Proietta" usa questo schermo, premi Esc per tornare qui.', '', 7000);
+DP.on('aud-state', s => { const was = AUD.open; Object.assign(AUD, s); audUI(); if (was && !AUD.open) toast('Proiettore spento. Premi "Proietta" o F5 per riaccenderlo.', '', 4000); });
+/* Scelta dello schermo: mai automatica, sempre confermata dal relatore. */
+function chooseDisplay() {
+  if (isModal()) return;
+  const L = AUD.displays; if (!L.length) return;
+  const others = L.filter(d => d.id !== AUD.presenterDisplay);
+  let sel = ST.displayId != null && L.some(d => d.id === ST.displayId) ? ST.displayId : (others[0] || L[0]).id;
+  const minX = Math.min(...L.map(d => d.x)), minY = Math.min(...L.map(d => d.y));
+  const maxX = Math.max(...L.map(d => d.x + d.bw)), maxY = Math.max(...L.map(d => d.y + d.bh));
+  const sc = Math.min(460 / (maxX - minX), 170 / (maxY - minY));
+  const cards = L.map(d => `<button type="button" class="dcard" data-id="${d.id}" style="left:${Math.round((d.x - minX) * sc)}px;top:${Math.round((d.y - minY) * sc)}px;width:${Math.round(d.bw * sc) - 6}px;height:${Math.round(d.bh * sc) - 6}px">
+      <b class="num">${d.n}</b><span>${d.id === AUD.presenterDisplay ? 'Relatore' : d.w + ' x ' + d.h}</span></button>`).join('');
+  const html = `<p>Il numero grande compare su ogni schermo: scegli quello del proiettore.</p>
+    <div class="dmap" style="width:${Math.round((maxX - minX) * sc)}px;height:${Math.round((maxY - minY) * sc)}px">${cards}</div>
+    <p class="dnote" id="dNote"></p>`;
+  DP.invoke('aud:identify', true);
+  const label = () => { const d = L.find(x => x.id === sel); return 'Proietta su schermo ' + (d ? d.n : ''); };
+  const close = dialogBox('Su quale schermo proiettare?', html, [
+    ['Annulla', '', null, ['Escape']],
+    [label(), 'primary', () => openOn(sel), ['Enter']]
+  ], 'monitor');
+  const bg = [...document.querySelectorAll('.dlg-bg')].pop();
+  const ok = bg.querySelector('.row .primary');
+  const paint = () => {
+    bg.querySelectorAll('.dcard').forEach(c => { const on = +c.dataset.id === sel; c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); });
+    ok.textContent = label();
+    $('dNote').textContent = sel === AUD.presenterDisplay ? 'È lo schermo del relatore: la proiezione lo copre, premi Esc per tornare qui.' : (others.length ? '' : 'Un solo schermo collegato.');
+  };
+  bg.querySelectorAll('.dcard').forEach(c => { c.onclick = () => { sel = +c.dataset.id; paint(); }; c.ondblclick = () => { sel = +c.dataset.id; ok.click(); }; });
+  const dk = e => { const d = L.find(x => String(x.n) === e.key); if (d) { e.preventDefault(); sel = d.id; paint(); } };
+  window.addEventListener('keydown', dk, true);
+  new MutationObserver((m, o) => { if (!bg.isConnected) { o.disconnect(); window.removeEventListener('keydown', dk, true); DP.invoke('aud:identify', false); } }).observe(document.body, { childList: true });
+  paint(); ok.focus();
+  return close;
 }
-$('bProj').onclick = () => {
-  if (AUD.open) return DP.invoke('aud:hide');
-  const id = +$('selDisp').value;
-  DP.invoke('aud:show', id).then(() => { if (id === AUD.presenterDisplay) toast('Proiezione su questo schermo: premi Esc per tornare al relatore.', '', 5000); });
-};
-$('selDisp').onchange = e => { AUD.displayId = +e.target.value; save(); if (AUD.open) DP.invoke('aud:show', AUD.displayId); };
+function openOn(id) {
+  DP.invoke('aud:identify', false);
+  AUD.displayId = id; ST.displayId = id; save();
+  DP.invoke('aud:show', id).then(() => {
+    if (SET.lockOnOpen) DP.invoke('aud:lock', true);
+    if (id === AUD.presenterDisplay) toast('Proiezione su questo schermo: premi Esc per tornare al relatore.', '', 5000);
+  });
+}
+function projToggle() { if (AUD.open) DP.invoke('aud:hide'); else chooseDisplay(); }
+$('bProj').onclick = projToggle;
 $('bFs').onclick = () => DP.invoke('aud:fullscreen');
 $('bLock').onclick = () => DP.invoke('aud:lock', !AUD.locked).then(v => toast(v ? 'Proiettore bloccato: nessuna azione possibile sul suo schermo' : 'Proiettore sbloccato', v ? 'ok' : ''));
 function setCover(c) {
@@ -506,7 +534,7 @@ function onKey(k, shift, ctrl) {
   if (ctrl) return false;
   if (/^[0-9]$/.test(k)) { buf = (buf + k).slice(0, 3); showBuf(); return true; }
   if (k === 'Enter' && buf) { const n = parseInt(buf, 10); buf = ''; showBuf(); if (n >= 1 && n <= N) go(n, 'jump'); return true; }
-  if (k === 'Escape') { if (buf) { buf = ''; showBuf(); } return true; }
+  if (k === 'Escape') { if (buf) { buf = ''; showBuf(); } else if (AUD.open) DP.invoke('aud:hide'); return true; }
   switch (k) {
     case ' ': case 'ArrowRight': case 'ArrowDown': case 'PageDown': case 'Enter': next(); break;
     case 'ArrowLeft': case 'ArrowUp': case 'PageUp': case 'Backspace': prev(); break;
@@ -524,7 +552,7 @@ function onKey(k, shift, ctrl) {
     case '+': case '=': FAD.mas.set(Math.min(12, MIX.mas.db + 1), true); break;
     case '-': case '_': FAD.mas.set(Math.max(-60, MIX.mas.db - 1), true); break;
     case 'F1': help(); break;
-    case 'F5': break;
+    case 'F5': if (!AUD.open) chooseDisplay(); break;
     default: return false;
   }
   return true;
@@ -542,7 +570,7 @@ document.addEventListener('mouseup', e => { const b = e.target.closest('button')
 function help() {
   const R = [['Avanti', 'Spazio, Freccia destra, PagGiù, Invio'], ['Indietro', 'Freccia sinistra, PagSù, Backspace'], ['Inizio, fine', 'Home, Fine'], ['Vai alla slide', 'Numero, poi Invio'],
     ['Video: avvia o pausa, stop', 'P, S'], ['Video: indietro o avanti di 10 s', 'J, L'], ['Schermo nero, bianco', 'B, W'], ['Puntatore laser', 'Z'],
-    ['Musica: avvia o pausa, successivo', 'M, N'], ['Volume master', '+, -'], ['Lucchetto del proiettore', 'Ctrl+L'], ['Proiettore sullo stesso schermo', 'Esc per tornare qui']];
+    ['Musica: avvia o pausa, successivo', 'M, N'], ['Volume master', '+, -'], ['Accendi il proiettore', 'F5'], ['Spegni il proiettore', 'Esc'], ['Lucchetto del proiettore', 'Ctrl+L']];
   dialogBox('Scorciatoie da tastiera', `<div class="help"><table>${R.map(r => `<tr><td>${r[0]}</td><td>${r[1].split(', ').map(x => '<kbd>' + esc(x) + '</kbd>').join(' ')}</td></tr>`).join('')}</table></div>`, [['Chiudi', 'primary', null, ['Escape', 'Enter', 'F1']]], 'help');
 }
 $('bHelp').onclick = help;

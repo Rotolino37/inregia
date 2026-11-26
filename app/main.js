@@ -37,7 +37,8 @@ for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); } catch (e) {} };
-let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, autoProjector: true, lockOnOpen: false, videoMirror: true }, readJson(SETTINGS_FILE, {}));
+let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true }, readJson(SETTINGS_FILE, {}));
+delete SETTINGS.autoProjector; // dalla beta 2 il proiettore si apre solo su richiesta
 const saveSettings = () => writeJson(SETTINGS_FILE, SETTINGS);
 
 /* ---------------------------------------------------------------- Chromium
@@ -272,7 +273,7 @@ function openLibrary() {
 }
 function displays() {
   const prim = screen.getPrimaryDisplay().id;
-  return screen.getAllDisplays().map((d, i) => ({ id: d.id, label: d.label || '', n: i + 1, w: d.size.width, h: d.size.height, primary: d.id === prim }));
+  return screen.getAllDisplays().map((d, i) => ({ id: d.id, label: d.label || '', n: i + 1, w: d.size.width, h: d.size.height, x: d.bounds.x, y: d.bounds.y, bw: d.bounds.width, bh: d.bounds.height, primary: d.id === prim }));
 }
 const presenterDisplay = () => pres ? screen.getDisplayMatching(pres.getBounds()) : screen.getPrimaryDisplay();
 function pickDisplay(id) {
@@ -296,7 +297,7 @@ function openPresenter(id) {
     dialog.showMessageBox(pres, { type: 'question', buttons: ['Chiudi InRegia', 'Annulla'], defaultId: 1, cancelId: 1, title: 'InRegia', message: 'Chiudere la presentazione?', detail: 'Si chiude anche lo schermo del proiettore.' })
       .then(r => { if (r.response === 0) { quitting = true; app.quit(); } });
   });
-  pres.on('closed', () => { pres = null; if (aud) { aud.destroy(); aud = null; } if (psb != null) { powerSaveBlocker.stop(psb); psb = null; } if (!lib && !quitting) app.quit(); });
+  pres.on('closed', () => { pres = null; identify(false); if (aud) { aud.destroy(); aud = null; } if (psb != null) { powerSaveBlocker.stop(psb); psb = null; } if (!lib && !quitting) app.quit(); });
   createAudience();
   psb = powerSaveBlocker.start('prevent-display-sleep');
   watchMusic(id);
@@ -316,7 +317,7 @@ function createAudience() {
     if (AUD.locked || !AUD.open) { e.preventDefault(); return; }
     if (inp.type !== 'keyDown') return;
     e.preventDefault();
-    if (inp.key === 'Escape') { if (AUD.displayId === presenterDisplay().id) hideAudience(); else if (aud.isFullScreen()) aud.setFullScreen(false); }
+    if (inp.key === 'Escape') hideAudience();
     else if (inp.key === 'F11') aud.setFullScreen(!aud.isFullScreen());
     else if (pres) pres.webContents.send('key', { key: inp.key, shift: inp.shift, ctrl: inp.control });
   });
@@ -335,7 +336,8 @@ function applyLock() {
   aud.setFocusable(!L); aud.setMovable(!L); aud.setResizable(!L);
   aud.setIgnoreMouseEvents(false);
   const other = AUD.displayId !== presenterDisplay().id;
-  aud.setAlwaysOnTop(L && other, 'screen-saver');
+  // Su uno schermo separato il proiettore resta sempre sopra a tutto (barra delle applicazioni compresa).
+  aud.setAlwaysOnTop(other, 'screen-saver');
   aud.webContents.send('msg', { t: 'lock', on: L });
   if (L && pres && other) pres.focus();
 }
@@ -344,10 +346,17 @@ function showAudience(displayId) {
   const d = pickDisplay(displayId), same = d.id === presenterDisplay().id;
   AUD.displayId = d.id; AUD.open = true;
   aud.setOpacity(1); aud.setSkipTaskbar(false); aud.setIgnoreMouseEvents(false);
-  aud.setBounds(d.bounds); aud.showInactive();
-  setTimeout(() => { if (!aud || !AUD.open) return; aud.setBounds(d.bounds); aud.setFullScreen(true); if (same) { aud.setFocusable(true); aud.focus(); } }, 80);
+  aud.setFocusable(true); aud.setBounds(d.bounds);
+  if (!same) aud.setAlwaysOnTop(true, 'screen-saver');
+  aud.show(); aud.moveTop();
+  setTimeout(() => {
+    if (!aud || !AUD.open) return;
+    aud.setBounds(d.bounds); aud.setFullScreen(true); aud.moveTop();
+    if (same) aud.focus();
+    applyLock();
+    if (!same && pres) setTimeout(() => { if (pres) pres.focus(); notifyAud(); }, 200);
+  }, 80);
   applyLock();
-  if (!same && pres) setTimeout(() => pres && pres.focus(), 250);
   aud.webContents.send('msg', { t: 'onair', on: true, same });
   notifyAud();
 }
@@ -357,6 +366,26 @@ function hideAudience() {
   AUD.locked = false;
   if (pres) pres.focus();
   notifyAud();
+}
+/* Numero grande su ogni schermo mentre il relatore sceglie dove proiettare. */
+let idWins = [];
+function identify(on) {
+  idWins.forEach(w => { if (!w.isDestroyed()) w.destroy(); }); idWins = [];
+  if (!on) return;
+  const pd = presenterDisplay().id;
+  screen.getAllDisplays().forEach((d, i) => {
+    const W = 360, H = 260, b = d.bounds;
+    const w = new BrowserWindow({ x: Math.round(b.x + (b.width - W) / 2), y: Math.round(b.y + (b.height - H) / 2), width: W, height: H, frame: false, transparent: true, resizable: false, movable: false,
+      focusable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false, webPreferences: { sandbox: true, contextIsolation: true } });
+    w.setAlwaysOnTop(true, 'screen-saver'); w.setIgnoreMouseEvents(true);
+    const sub = d.id === pd ? 'Relatore' : d.size.width + ' x ' + d.size.height;
+    const html = `<!doctype html><meta charset="utf-8"><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:transparent;font-family:Calibri,'Segoe UI',sans-serif">
+      <div style="width:320px;height:220px;border-radius:18px;background:rgba(15,19,30,.92);border:3px solid #d9b45a;color:#f3f0e8;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div style="font-size:120px;line-height:1;font-weight:700;color:#d9b45a">${i + 1}</div><div style="font-size:24px;margin-top:8px">${sub}</div></div></body>`;
+    w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    w.once('ready-to-show', () => w.showInactive());
+    idWins.push(w);
+  });
 }
 function notifyAud() {
   if (pres && !pres.isDestroyed()) pres.webContents.send('aud-state', Object.assign({}, AUD, { fullscreen: !!(aud && AUD.open && aud.isFullScreen()), displays: displays(), presenterDisplay: presenterDisplay().id }));
@@ -425,6 +454,7 @@ ipcMain.handle('aud:show', (e, id) => { showAudience(id); return true; });
 ipcMain.handle('aud:hide', () => { hideAudience(); return true; });
 ipcMain.handle('aud:lock', (e, on) => { if (!AUD.open) return false; AUD.locked = !!on; applyLock(); notifyAud(); return AUD.locked; });
 ipcMain.handle('aud:state', () => { notifyAud(); return true; });
+ipcMain.handle('aud:identify', (e, on) => { identify(!!on); return true; });
 ipcMain.handle('aud:fullscreen', () => { if (aud && AUD.open) { const d = pickDisplay(AUD.displayId); aud.setBounds(d.bounds); aud.setFullScreen(true); } setTimeout(notifyAud, 300); return true; });
 ipcMain.on('p2a', (e, m) => { if (aud && !aud.isDestroyed()) aud.webContents.send('msg', m); });
 ipcMain.on('a2p', (e, m) => { if (pres && !pres.isDestroyed()) pres.webContents.send('msg', m); });

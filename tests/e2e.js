@@ -73,6 +73,7 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     await sleep(1200);
     const vis = await au.evaluate(() => document.visibilityState);
     check('proiettore chiuso ma attivo (non sospeso)', vis === 'visible', vis);
+    check('proiettore non aperto all\'avvio', (await pr.evaluate(() => AUD.open)) === false, await pr.evaluate(() => AUD.open));
     await shot(pr, '04-presenter');
     /* ---------------- video con proiettore chiuso */
     for (let i = 0; i < 4; i++) { await pr.keyboard.press('ArrowRight'); await sleep(700); }
@@ -96,18 +97,23 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     /* ---------------- musica */
     const q = await pr.evaluate(() => QUEUE.slice());
     check('coda musicale costruita', q.length === 2 && q.some(x => x.startsWith('g:')) && q.some(x => x.startsWith('p:')), q);
-    const tm = Date.now(); await pr.keyboard.press('m');
+    await pr.click('.tab[data-tab=music]'); await sleep(300);
+    const tm = Date.now(); await pr.click('#muPlay');
     const mstart = await until(() => au.evaluate(() => MUS.deck >= 0 && A.decks[MUS.deck].el.currentTime > 0.2 && peak(A.musM.l, A.musM.b) > -60), 8000, 50);
     R.metrics.musicStartMs = mstart ? Date.now() - tm : null;
-    check('musica avviata rapidamente', mstart && R.metrics.musicStartMs < 2500, R.metrics.musicStartMs);
+    check('musica avviata con un click su Play', mstart && R.metrics.musicStartMs < 2500, R.metrics.musicStartMs);
+    const stable = await pr.evaluate(() => new Promise(r => { const a = $('muPlay').firstChild, b = $('mPlay').firstChild; setTimeout(() => r(a === $('muPlay').firstChild && b === $('mPlay').firstChild), 600); }));
+    check('pulsanti Play non ridisegnati durante la riproduzione', stable, stable);
     await sleep(800);
     const lvm = await pr.evaluate(() => [LV.mus[0], MST.playing, MST.id]);
     check('livelli musica nel relatore', lvm[0] > -60 && lvm[1], lvm);
-    await pr.click('.tab[data-tab=music]'); await sleep(300); await shot(pr, '06-presenter-music');
+    await shot(pr, '06-presenter-music');
     await pr.click('#muSeg button[data-mv=lib]'); await sleep(300); await shot(pr, '07-presenter-music-lib');
     await pr.click('#muSeg button[data-mv=queue]');
     // ducking durante il video
-    await pr.keyboard.press('p'); await sleep(2000);
+    await pr.click('#mPlay'); await sleep(2000);
+    const vplay = await au.evaluate(() => MEDIA[0] && !MEDIA[0].el.paused);
+    check('video avviato con un click su Play', vplay, vplay);
     const duck = await au.evaluate(() => A.musDuck.gain.value);
     check('musica abbassata durante il video', duck < 0.5, duck);
     await pr.keyboard.press('s'); await sleep(1500);
@@ -130,7 +136,14 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     await pr.keyboard.press('ArrowRight'); await sleep(600);
     check('slide nascosta saltata', (await pr.textContent('#cnt')) === 'Slide 7 di 7', await pr.textContent('#cnt'));
     /* ---------------- proiettore e lucchetto */
-    await pr.click('#bProj'); await sleep(1500);
+    await pr.click('#bProj'); await sleep(700);
+    const dlg = await pr.evaluate(() => ({ cards: document.querySelectorAll('.dcard').length, ok: (document.querySelector('.dlg .primary') || {}).textContent }));
+    const idw = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(w => w.webContents.getURL().startsWith('data:')).length);
+    check('scelta dello schermo con numeri identificativi', dlg.cards >= 1 && idw === dlg.cards && /Proietta su schermo \d/.test(dlg.ok), Object.assign({ idw }, dlg));
+    await shot(pr, '08-presenter-choose-display');
+    await pr.keyboard.press('Enter'); await sleep(1500);
+    const idw2 = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w.webContents.getURL().startsWith('data:')).length);
+    check('numeri identificativi chiusi dopo la scelta', idw2 === 0, idw2);
     const st1 = await pr.evaluate(() => AUD);
     check('proiettore acceso', st1.open, { open: st1.open, fs: st1.fullscreen, same: st1.displayId === st1.presenterDisplay });
     await pr.click('#bLock'); await sleep(500);
@@ -139,11 +152,16 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     const nBefore = await pr.textContent('#cnt');
     await au.keyboard.press('Home').catch(() => {}); await sleep(400);
     check('tastiera bloccata sul proiettore', (await pr.textContent('#cnt')) === nBefore, await pr.textContent('#cnt'));
-    await shot(pr, '08-presenter-onair');
+    await shot(pr, '09-presenter-onair');
     await pr.click('#bLock'); await sleep(300);
-    await pr.click('#bProj'); await sleep(800);
+    await au.keyboard.press('Escape'); await sleep(800);
     const st2 = await pr.evaluate(() => AUD.open);
-    check('proiettore spento dal relatore', st2 === false, st2);
+    check('Esc sul proiettore lo spegne', st2 === false, st2);
+    await pr.keyboard.press('F5'); await sleep(500); await pr.keyboard.press('Enter'); await sleep(1500);
+    const st3 = await pr.evaluate(() => AUD.open);
+    await pr.evaluate(() => onKey('Escape')); await sleep(800);
+    const st4 = await pr.evaluate(() => AUD.open);
+    check('F5 accende, Esc dal relatore spegne', st3 === true && st4 === false, [st3, st4]);
     check('nessun errore JavaScript', pageErr.length === 0, pageErr.slice(0, 5));
   } catch (e) {
     R.ok = false; R.errors.push(String(e && e.stack || e)); console.log('ERRORE', e);

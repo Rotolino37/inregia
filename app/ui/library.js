@@ -171,7 +171,6 @@ function renderSettings() {
   const s = D.settings, e = D.engine;
   $('v-settings').innerHTML = `<div class="vhead"><div><h1>Impostazioni</h1><div class="sec">Valgono per tutte le presentazioni.</div></div></div><div class="settings">
     <h2 class="sgroup">Presentazione</h2>
-    <div class="srow"><div class="l"><b>Apri il proiettore all'avvio</b><span>Se è collegato un secondo schermo</span></div><label class="switch"><input type="checkbox" data-k="autoProjector"><i></i></label></div>
     <div class="srow"><div class="l"><b>Lucchetto attivo all'apertura</b><span>Il proiettore si apre già bloccato</span></div><label class="switch"><input type="checkbox" data-k="lockOnOpen"><i></i></label></div>
     <div class="srow"><div class="l"><b>Video anche nell'anteprima del relatore</b><span>Mostra il video in riproduzione nella slide corrente. Disattiva su PC molto lenti</span></div><label class="switch"><input type="checkbox" data-k="videoMirror"><i></i></label></div>
     <h2 class="sgroup">Importazione</h2>
@@ -184,7 +183,7 @@ function renderSettings() {
   const v = $('v-settings');
   v.querySelectorAll('[data-k]').forEach(el => {
     const k = el.dataset.k;
-    if (el.type === 'checkbox') { el.checked = k === 'autoProjector' || k === 'videoMirror' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
+    if (el.type === 'checkbox') { el.checked = k === 'videoMirror' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
     else { el.value = String(s[k] || 1920); el.onchange = () => DP.invoke('settings:set', { [k]: +el.value }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
   });
   $('sEng').onclick = () => job('Installazione del motore', 'engine:download', 'Motore installato.');

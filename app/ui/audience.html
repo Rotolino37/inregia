@@ -217,6 +217,8 @@ DP.on('msg', m => {
     case 'sync': if (view) { view.render(m.n, m.step); if (cur.n !== m.n) { cur.n = m.n; buildMedia(m.n); } cur.step = m.step; } setCover(m.cover); break;
   }
 });
+// Esc spegne il proiettore (di norma intercettato prima dal processo principale; qui come riserva).
+addEventListener('keydown', e => { if (!locked && e.key === 'Escape') { e.preventDefault(); DP.invoke('aud:hide'); } });
 ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'wheel', 'keydown', 'dragstart'].forEach(ev => addEventListener(ev, e => { if (locked) { e.preventDefault(); e.stopPropagation(); } else if (ev === 'contextmenu' || ev === 'dragstart') e.preventDefault(); }, true));
 
 /* ------------------------------------------------------------ stato */
