@@ -24,7 +24,12 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'inregia-e2e-'));
   const data = path.join(tmp, 'data');
-  const env = Object.assign({}, process.env, { INREGIA_DATA: data });
+  // Feed di aggiornamento finto: una stabile vecchia, una stabile nuova, una beta più nuova.
+  const feed = path.join(tmp, 'feed.json');
+  const rel = (tag, pre) => ({ tag, name: 'InRegia ' + tag, prerelease: pre, notes: '## Novità\n- Prova ' + tag, assets: [{ name: 'InRegia-Setup-' + tag + '.exe', url: 'https://example.invalid/s.exe' }] });
+  fs.writeFileSync(feed, JSON.stringify([rel('v2026.11', false), rel('v2099.0', false), rel('v2099.1-beta.1', true), rel('v2099.1-beta.0', true)]));
+  const env = Object.assign({}, process.env, { INREGIA_DATA: data, INREGIA_UPDATE_FEED: feed });
+  if (!process.env.INREGIA_EXE) env.INREGIA_LO_LATEST = '99.1.0';
   let launch;
   if (process.env.INREGIA_EXE) launch = { executablePath: process.env.INREGIA_EXE, args: [], env };
   else {
@@ -46,6 +51,17 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     check('motore di conversione trovato', L0.engine.found, L0.engine);
     check('musica predefinita disponibile', L0.defaultMusic > 0, L0.defaultMusic);
     await shot(lib, '01-library-empty');
+    /* ---------------- aggiornamenti */
+    const popup = await until(() => lib.evaluate(() => { const d = document.querySelector('.dlg-bg.upd'); return d && d.querySelector('.urow b').textContent; }), 12000);
+    check('avviso nuova versione all\'avvio (canale beta)', popup === 'InRegia v2099.1-beta.1', popup);
+    await shot(lib, '01b-library-update');
+    await lib.click('.dlg-bg.upd [data-a=later]');
+    await lib.evaluate(() => DP.invoke('settings:set', { updateChannel: 'stable' }));
+    const us = await lib.evaluate(() => DP.invoke('update:check'));
+    check('canale stabile ignora le beta', us.app.available && us.app.latest.tag === 'v2099.0', us.app.latest && us.app.latest.tag);
+    await lib.evaluate(() => DP.invoke('settings:set', { updateChannel: 'beta' }));
+    check('versione LibreOffice letta', !!us.engine.latest && (us.engine.status.kind !== 'bundled' || !!us.engine.installed), { kind: us.engine.status.kind, installed: us.engine.installed, latest: us.engine.latest, available: us.engine.available });
+    R.engine = us.engine;
     /* ---------------- importazione (stesso percorso del trascinamento) */
     const pptx = path.join(tmp, 'Presentazione di prova.pptx'); fs.copyFileSync(path.join(FIX, 'test.pptx'), pptx);
     const t0 = Date.now();

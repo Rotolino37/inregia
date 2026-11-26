@@ -32,11 +32,11 @@ function renderBanner() {
   $('eDl').onclick = () => job('Installazione del motore', 'engine:download', 'Motore installato. Ora puoi importare presentazioni.');
   $('eMsi').onclick = () => job('Installazione del motore', 'engine:msi', 'Motore installato.');
 }
-async function job(title, ch, okMsg) {
+async function job(title, ch, okMsg, arg) {
   $('jbT').textContent = title; $('jbM').textContent = 'Avvio'; setBar(-1); $('jobbox').style.display = 'flex';
   const off = DP.on('job:progress', d => { $('jbM').textContent = d.m; setBar(d.p); });
-  const r = await DP.invoke(ch); off(); $('jobbox').style.display = 'none';
-  if (r.ok) toast(okMsg, 'ok', 5000);
+  const r = await DP.invoke(ch, arg); off(); $('jobbox').style.display = 'none';
+  if (r.ok && okMsg) toast(okMsg, 'ok', 5000);
   else if (!r.canceled) toast('Operazione non riuscita: ' + r.error, 'bad', 8000);
   load(); if (mlib) mlib.load();
   return r;
@@ -175,7 +175,11 @@ function renderSettings() {
     <div class="srow"><div class="l"><b>Video anche nell'anteprima del relatore</b><span>Mostra il video in riproduzione nella slide corrente. Disattiva su PC molto lenti</span></div><label class="switch"><input type="checkbox" data-k="videoMirror"><i></i></label></div>
     <h2 class="sgroup">Importazione</h2>
     <div class="srow"><div class="l"><b>Qualità delle immagini delle slide</b><span>Vale dalla prossima importazione</span></div><select class="sel" data-k="renderWidth"><option value="1920">Full HD (1920 px)</option><option value="2560">QHD (2560 px)</option><option value="3840">4K (3840 px)</option></select></div>
-    <div class="srow"><div class="l"><b>Motore di conversione</b><span>${e.found ? (e.kind === 'bundled' ? 'LibreOffice interno a InRegia' : 'LibreOffice del sistema') : 'Non installato'}</span></div><button class="btn sm" id="sEng">${e.found && e.kind === 'bundled' ? 'Reinstalla' : 'Installa'}</button></div>
+    <div class="srow"><div class="l"><b>Motore di conversione</b><span id="sEngT">${e.found ? (e.kind === 'bundled' ? 'LibreOffice interno a InRegia' : 'LibreOffice del sistema') : 'Non installato'}</span></div><button class="btn sm" id="sEng">${e.found && e.kind === 'bundled' ? 'Controlla' : 'Installa'}</button></div>
+    <h2 class="sgroup">Aggiornamenti</h2>
+    <div class="srow"><div class="l"><b>InRegia</b><span id="sUpdT">Versione installata ${esc(D.version)}</span></div><button class="btn sm" id="sUpd">${ic('refresh')}Controlla</button></div>
+    <div class="srow"><div class="l"><b>Ricevi anche le versioni beta</b><span>Le beta arrivano prima ma possono contenere errori</span></div><label class="switch"><input type="checkbox" id="sBeta"><i></i></label></div>
+    <div class="srow"><div class="l"><b>Controlla all'avvio</b><span>Solo nella libreria, mai durante una presentazione</span></div><label class="switch"><input type="checkbox" data-k="autoUpdateCheck"><i></i></label></div>
     <h2 class="sgroup">Sistema</h2>
     <div class="srow"><div class="l"><b>Modalità compatibilità grafica</b><span>Per schede video problematiche. Richiede il riavvio di InRegia</span></div><label class="switch"><input type="checkbox" data-k="compatGpu"><i></i></label></div>
     <div class="srow"><div class="l"><b>Cartella dei dati</b><span>Presentazioni importate, musica aggiunta, impostazioni</span></div><button class="btn sm" id="sData">${ic('folder')}Apri cartella</button></div>
@@ -183,12 +187,79 @@ function renderSettings() {
   const v = $('v-settings');
   v.querySelectorAll('[data-k]').forEach(el => {
     const k = el.dataset.k;
-    if (el.type === 'checkbox') { el.checked = k === 'videoMirror' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
+    if (el.type === 'checkbox') { el.checked = k === 'videoMirror' || k === 'autoUpdateCheck' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
     else { el.value = String(s[k] || 1920); el.onchange = () => DP.invoke('settings:set', { [k]: +el.value }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
   });
-  $('sEng').onclick = () => job('Installazione del motore', 'engine:download', 'Motore installato.');
+  $('sEng').onclick = () => e.found && e.kind === 'bundled' ? checkUpdates(true) : job('Installazione del motore', 'engine:download', 'Motore installato.');
   $('sData').onclick = () => DP.invoke('open:data');
+  $('sUpd').onclick = () => checkUpdates(true);
+  $('sBeta').checked = s.updateChannel !== 'stable';
+  $('sBeta').onchange = ev => DP.invoke('settings:set', { updateChannel: ev.target.checked ? 'beta' : 'stable' }).then(x => { D.settings = x; checkUpdates(false); });
+  if (UPD) paintUpd(UPD);
 }
+
+/* ------------------------------------------------------------ aggiornamenti */
+let UPD = null;
+function paintUpd(u) {
+  const a = u.app || {}, e = u.engine || {};
+  if ($('sUpdT')) {
+    $('sUpdT').textContent = a.error ? 'Versione installata ' + D.version + '. Controllo non riuscito: ' + a.error
+      : a.available ? 'Disponibile ' + a.latest.name + ' (installata ' + (a.currentName || a.current) + ')' : 'Versione installata ' + (a.currentName || D.version) + ': è la più recente';
+    $('sUpd').innerHTML = a.available ? ic('download') + 'Aggiorna a ' + esc(a.latest.name.replace(/^InRegia\s*/, '')) : ic('refresh') + 'Controlla';
+    $('sUpd').className = 'btn sm' + (a.available ? ' primary' : '');
+    $('sUpd').onclick = () => a.available ? installApp(a) : checkUpdates(true);
+  }
+  if ($('sEngT') && e.status && e.status.found) {
+    const where = e.status.kind === 'bundled' ? 'LibreOffice interno' : 'LibreOffice del sistema';
+    $('sEngT').textContent = where + (e.installed ? ' ' + e.installed : '') + (e.available ? '. Disponibile la versione ' + e.latest : e.latest && e.status.kind === 'bundled' ? ': è la più recente' : '');
+    if (e.status.kind === 'bundled') {
+      $('sEng').innerHTML = e.available ? ic('download') + 'Aggiorna a ' + esc(e.latest) : ic('refresh') + 'Controlla';
+      $('sEng').className = 'btn sm' + (e.available ? ' primary' : '');
+      $('sEng').onclick = () => e.available ? updateEngine(e) : checkUpdates(true);
+    }
+  }
+}
+async function checkUpdates(manual) {
+  if (manual && $('sUpd')) { $('sUpd').disabled = true; $('sUpdT').textContent = 'Controllo in corso'; }
+  UPD = await DP.invoke('update:check');
+  if ($('sUpd')) $('sUpd').disabled = false;
+  paintUpd(UPD);
+  if (manual) {
+    if (UPD.app.error) toast('Controllo aggiornamenti non riuscito: ' + UPD.app.error, 'bad', 6000);
+    else if (UPD.app.available || (UPD.engine.available && UPD.engine.status.found)) updatesDialog({ app: UPD.app.available ? UPD.app : null, engine: UPD.engine.available && UPD.engine.status.found ? UPD.engine : null });
+    else toast('InRegia e LibreOffice sono aggiornati', 'ok', 3000);
+  }
+}
+function updatesDialog(u) {
+  if (document.querySelector('.dlg-bg.upd')) return;
+  const a = u.app, e = u.engine;
+  const bg = document.createElement('div'); bg.className = 'dlg-bg upd';
+  const notes = a && a.latest.notes ? `<pre class="notes">${esc(a.latest.notes)}</pre>` : '';
+  bg.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="updT"><h2 id="updT">${ic('download')}Aggiornamenti disponibili</h2><div class="body">
+    ${a ? `<div class="urow"><div><b>${esc(a.latest.name)}</b><span>Installata ${esc(a.currentName || a.current)}${a.latest.prerelease ? '. Versione beta' : ''}</span></div>
+      ${a.canInstall ? '<button class="btn primary" data-a="app">' + ic('download') + 'Aggiorna ora</button>' : '<span class="sec">Aggiornamento automatico solo su Windows</span>'}</div>${notes}
+      ${a.canInstall ? '<p class="sec">InRegia si chiude, si aggiorna e si riapre da solo. Windows chiede l\'autorizzazione. Presentazioni e musica restano dove sono.</p>' : ''}` : ''}
+    ${e ? `<div class="urow"><div><b>LibreOffice ${esc(e.latest)}</b><span>Motore di conversione, installato ${esc(e.installed || 'versione sconosciuta')}. Download di circa 350 MB</span></div>
+      ${e.canInstall ? '<button class="btn' + (a ? '' : ' primary') + '" data-a="eng">' + ic('download') + 'Aggiorna LibreOffice</button>' : ''}</div>` : ''}
+  </div><div class="row">${a ? '<button class="btn quiet" data-a="skip">Salta questa versione</button>' : ''}<button class="btn" data-a="later">Più tardi</button></div></div>`;
+  const close = () => { bg.remove(); document.removeEventListener('keydown', k, true); };
+  const k = ev => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); } };
+  bg.querySelector('[data-a=later]').onclick = close;
+  const sk = bg.querySelector('[data-a=skip]'); if (sk) sk.onclick = () => { DP.invoke('update:skip', a.latest.tag); toast('Non ti verrà più proposta ' + a.latest.name + '. Puoi installarla da Impostazioni.', '', 5000); close(); };
+  const ba = bg.querySelector('[data-a=app]'); if (ba) ba.onclick = () => { close(); installApp(a); };
+  const be = bg.querySelector('[data-a=eng]'); if (be) be.onclick = () => { close(); updateEngine(e); };
+  document.addEventListener('keydown', k, true); document.body.appendChild(bg);
+  (ba || be || bg.querySelector('[data-a=later]')).focus();
+}
+async function installApp(a) {
+  const r = await job('Aggiornamento di InRegia', 'update:install', null);
+  if (r.ok) { $('jbT').textContent = 'Aggiornamento di InRegia'; $('jbM').textContent = 'InRegia si chiude e si riapre al termine dell\'installazione.'; setBar(-1); $('jobbox').style.display = 'flex'; }
+}
+async function updateEngine(e) {
+  const r = await job('Aggiornamento di LibreOffice', 'engine:update', null);
+  if (r.ok) { toast(r.unchanged ? 'LibreOffice è già aggiornato' : 'LibreOffice aggiornato alla versione ' + ((r.info && r.info.installed) || e.latest), 'ok', 5000); UPD = Object.assign(UPD || {}, { engine: r.info || UPD.engine }); paintUpd(UPD); }
+}
+DP.on('updates', u => { UPD = Object.assign(UPD || {}, u.app ? { app: u.app } : {}, u.engine ? { engine: u.engine } : {}); updatesDialog(u); });
 
 /* ------------------------------------------------------------ navigazione */
 function setView(v) {

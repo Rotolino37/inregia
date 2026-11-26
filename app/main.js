@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 const url = require('url');
+const UPD = require('./updater');
 
 /* ---------------------------------------------------------------- percorsi
  * INSTALL: cartella del programma (sola lettura se in Programmi)
@@ -37,7 +38,7 @@ for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); } catch (e) {} };
-let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true }, readJson(SETTINGS_FILE, {}));
+let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'beta', autoUpdateCheck: true, skipVersion: null }, readJson(SETTINGS_FILE, {}));
 delete SETTINGS.autoProjector; // dalla beta 2 il proiettore si apre solo su richiesta
 const saveSettings = () => writeJson(SETTINGS_FILE, SETTINGS);
 
@@ -150,12 +151,16 @@ function findFile(dir, names, depth) {
 }
 function engineStatus() {
   const exe = process.platform === 'win32' ? ['soffice.com', 'soffice.exe'] : ['soffice'];
-  for (const [d, kind] of [[DIR.engineInstall, 'bundled'], [DIR.engineUser, 'bundled']]) { const f = fs.existsSync(d) ? findFile(d, exe, 5) : null; if (f) return { found: true, kind, path: f }; }
+  for (const [d, where] of [[DIR.engineInstall, 'install'], [DIR.engineUser, 'user']]) {
+    const lo = path.join(d, 'libreoffice');
+    const f = fs.existsSync(lo) ? findFile(lo, exe, 4) : null;
+    if (f) return { found: true, kind: 'bundled', where, dir: d, path: f };
+  }
   const cands = process.platform === 'win32'
     ? [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], 'C:\\Program Files'].filter(Boolean).map(b => path.join(b, 'LibreOffice', 'program', 'soffice.com'))
     : ['/usr/bin/soffice', '/usr/local/bin/soffice', '/Applications/LibreOffice.app/Contents/MacOS/soffice'];
   const sys = cands.find(p => fs.existsSync(p));
-  return sys ? { found: true, kind: 'system', path: sys } : { found: false };
+  return sys ? { found: true, kind: 'system', where: 'system', path: sys } : { found: false };
 }
 function extractMsi(msi, onP) {
   return new Promise((res, rej) => {
@@ -193,7 +198,9 @@ async function downloadEngine(onP) {
   if (!vers.length) throw new Error('Impossibile leggere le versioni disponibili');
   const v = vers[0], name = `LibreOffice_${v}_Win_x86-64.msi`, file = path.join(DIR.engineUser, name);
   await download(`${BASE}${v}/win/x86_64/${name}`, file, onP, 'Download LibreOffice ' + v);
-  return extractMsi(file, onP);
+  const st = await extractMsi(file, onP);
+  try { fs.writeFileSync(path.join(DIR.engineUser, 'libreoffice', 'inregia-version.txt'), v); } catch (e) {}
+  return st;
 }
 function unzipTo(zip, dest) {
   return new Promise((res, rej) => {
@@ -268,6 +275,7 @@ function openLibrary() {
   lib = new BrowserWindow({ width: 1240, height: 800, minWidth: 980, minHeight: 640, show: false, backgroundColor: '#14171f', icon: ICON, title: 'InRegia', autoHideMenuBar: true, webPreferences: prefs() });
   lib.loadFile(path.join(APP_DIR, 'ui', 'library.html'));
   lib.once('ready-to-show', () => lib.show());
+  lib.webContents.once('did-finish-load', () => setTimeout(() => autoCheck(lib), 2500));
   lib.on('closed', () => { lib = null; if (!pres && !quitting) app.quit(); });
   watchMusic(null);
 }
@@ -463,6 +471,66 @@ ipcMain.handle('app:back', () => {
   const p = pres; p._back = true; if (aud) { aud.destroy(); aud = null; }
   AUD = { open: false, locked: false, displayId: null };
   openLibrary(); p.close();
+});
+/* ---------------------------------------------------------------- aggiornamenti */
+let UPD_INFO = null, ENG_INFO = null, BUSY_UPD = false;
+const canWrite = d => { try { fs.mkdirSync(d, { recursive: true }); const t = path.join(d, '.w' + process.pid); fs.writeFileSync(t, ''); fs.unlinkSync(t); return true; } catch (e) { return false; } };
+async function engineCheck() {
+  const st = engineStatus();
+  const installed = st.found ? UPD.loInstalledVersion(st.path) : null;
+  let latest = null, error = null;
+  try { latest = await UPD.loLatest(); } catch (e) { error = String(e.message || e); }
+  ENG_INFO = { status: st, installed, latest, error, managed: st.kind === 'bundled' || !st.found,
+    available: !!(latest && (!st.found || (st.kind === 'bundled' && (!installed || UPD.cmpVer(latest, installed) > 0)))),
+    canInstall: process.platform === 'win32' };
+  return ENG_INFO;
+}
+async function appCheck() {
+  try { UPD_INFO = await UPD.checkApp(SETTINGS.updateChannel); }
+  catch (e) { UPD_INFO = { current: app.getVersion(), error: String(e.message || e), available: false, checked: new Date().toISOString() }; }
+  return UPD_INFO;
+}
+let autoChecked = false;
+async function autoCheck(w) {
+  if (autoChecked || SETTINGS.autoUpdateCheck === false || process.env.INREGIA_NO_UPDATE_CHECK) return;
+  autoChecked = true;
+  const [a, e] = await Promise.all([appCheck(), engineCheck().catch(() => null)]);
+  const appNew = a.available && a.latest && a.latest.tag !== SETTINGS.skipVersion;
+  const engNew = e && e.available && e.status.found && e.canInstall;
+  if ((appNew || engNew) && w && !w.isDestroyed() && !pres) w.webContents.send('updates', { app: appNew ? a : null, engine: engNew ? e : null });
+}
+ipcMain.handle('update:check', async () => ({ app: await appCheck(), engine: await engineCheck() }));
+ipcMain.handle('update:skip', (e, tag) => { SETTINGS.skipVersion = tag || null; saveSettings(); return true; });
+ipcMain.handle('update:install', async e => {
+  if (BUSY_UPD) return { ok: false, error: 'Aggiornamento già in corso' };
+  if (QUEUE.some(q => q.state === 'running')) return { ok: false, error: 'Attendi la fine dell\'importazione in corso' };
+  BUSY_UPD = true;
+  try {
+    const info = UPD_INFO && UPD_INFO.available ? UPD_INFO : await appCheck();
+    await UPD.installApp(info, path.join(app.getPath('temp'), 'InRegia-update'), (p, m) => e.sender.send('job:progress', { p, m }));
+    setTimeout(() => { quitting = true; app.quit(); }, 1200);
+    return { ok: true };
+  } catch (err) { BUSY_UPD = false; return { ok: false, error: String(err.message || err) }; }
+});
+ipcMain.handle('engine:check', () => engineCheck());
+ipcMain.handle('engine:update', async (e, opt) => {
+  if (BUSY_UPD) return { ok: false, error: 'Aggiornamento già in corso' };
+  if (QUEUE.some(q => q.state === 'running')) return { ok: false, error: 'Attendi la fine dell\'importazione in corso' };
+  BUSY_UPD = true;
+  try {
+    const info = await engineCheck();
+    if (!info.latest) throw new Error(info.error || 'Versione più recente non disponibile');
+    if (!info.available && !(opt && opt.force)) return { ok: true, unchanged: true, info };
+    const st = info.status;
+    // Il motore resta dov'è: in Programmi serve l'autorizzazione di Windows, nella cartella utente no.
+    let engineDir = st.found && st.kind === 'bundled' ? st.dir : (canWrite(DIR.engineInstall) ? DIR.engineInstall : DIR.engineUser);
+    const elevate = process.env.INREGIA_FORCE_ELEVATE === '1' || !canWrite(engineDir);
+    await UPD.loUpdate({ version: info.latest, engineDir, dlDir: path.join(DATA, 'downloads'), elevate, onP: (p, m) => e.sender.send('job:progress', { p, m }) });
+    const after = await engineCheck(); libNotify();
+    if (!after.status.found) throw new Error('Motore non trovato dopo l\'aggiornamento');
+    return { ok: true, info: after };
+  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+  finally { BUSY_UPD = false; }
 });
 ipcMain.handle('app:quit', () => { if (pres) pres.close(); else app.quit(); });
 

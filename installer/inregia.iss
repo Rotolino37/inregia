@@ -92,6 +92,8 @@ Name: "{autodesktop}\InRegia"; Filename: "{app}\InRegia.exe"; WorkingDir: "{app}
 
 [Run]
 Filename: "{app}\InRegia.exe"; Description: "Avvia InRegia"; Flags: nowait postinstall skipifsilent
+; aggiornamento avviato dall'app (/UPDATE=1): riapre InRegia con l'utente originale, non come amministratore
+Filename: "{app}\InRegia.exe"; Description: "Riavvia InRegia"; Flags: nowait postinstall skipifnotsilent runasoriginaluser; Check: IsUpdate
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\resources"
@@ -114,6 +116,13 @@ Type: dirifempty; Name: "{app}"
 var
   DownloadPage: TDownloadWizardPage;
   Downloaded: Boolean;
+  LOVersion: String;
+
+{ /UPDATE=1: aggiornamento lanciato dall'app, sostituisce solo il programma }
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
 
 function OnDownloadProgress(const Url, FileName: String; const Progress, ProgressMax: Int64): Boolean;
 begin
@@ -204,6 +213,7 @@ begin
     Log('Elenco versioni LibreOffice non disponibile: ' + GetExceptionMessage);
   end;
   if Best = '' then Best := '{#LOFallback}';
+  LOVersion := Best;
   Log('LibreOffice scelto: ' + Best);
   Result := 'https://download.documentfoundation.org/libreoffice/stable/' + Best + '/win/x86_64/LibreOffice_' + Best + '_Win_x86-64.msi';
 end;
@@ -323,6 +333,12 @@ begin
       DelTree(ExpandConstant('{app}\engine'), True, True, True);
       ForceDirectories(ExpandConstant('{app}\engine\libreoffice'));
       RC := RunHidden(ExpandConstant('{sys}\msiexec.exe'), '/a "' + Msi + '" /qn TARGETDIR="' + ExpandConstant('{app}\engine\libreoffice') + '"');
+      if (LOVersion = '') and (Pos('LibreOffice_', ExtractFileName(Msi)) = 1) then begin
+        LOVersion := Copy(ExtractFileName(Msi), 13, MaxInt);
+        LOVersion := Copy(LOVersion, 1, Pos('_', LOVersion) - 1);
+      end;
+      if ((RC = 0) or (RC = 3010)) and (LOVersion <> '') then
+        SaveStringToFile(ExpandConstant('{app}\engine\libreoffice\inregia-version.txt'), LOVersion, False);
       if (RC <> 0) and (RC <> 3010) then
         SuppressibleMsgBox('Il motore di conversione non è stato installato (codice ' + IntToStr(RC) + '). Potrai installarlo dall''app, nella libreria.', mbError, MB_OK, IDOK);
     end;
