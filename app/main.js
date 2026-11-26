@@ -139,7 +139,7 @@ function T(s) {
   const L = uiLang(); if (L === 'it') return s;
   const e = I18N_DICT.strings[s]; if (e && e[L]) return e[L];
   for (const [src, tr] of I18N_DICT.patterns) {
-    const ord = []; const re = new RegExp('^' + src.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{(\d)\}/g, (m, n) => { ord.push(+n); return '([\\s\\S]+?)'; }) + '$');
+    const ord = []; const re = new RegExp('^' + src.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{(#?)(\d)\}/g, (m, h, n) => { ord.push(+n); return h ? '(\\d[\\d.,:k]*)' : '([\\s\\S]+?)'; }) + '$');
     const m = re.exec(s); if (m && tr[L]) { const v = []; ord.forEach((n, i) => { v[n] = m[i + 1]; }); return tr[L].replace(/\{(\d)\}/g, (x, n) => v[+n]); }
   }
   return s;

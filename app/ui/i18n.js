@@ -16,12 +16,14 @@
   const produced = new Set(); // testi già tradotti: non vanno ritradotti né segnalati
   const esc = s => s.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
   const PAT = (DICT.patterns || []).map(([src, tr]) => {
-    const order = []; const re = new RegExp('^' + esc(src).replace(/\{(\d)\}/g, (m, n) => { order.push(+n); return '([\\s\\S]+?)'; }) + '$');
+    const order = []; const re = new RegExp('^' + esc(src).replace(/\{(#?)(\d)\}/g, (m, h, n) => { order.push(+n); return h ? '(\\d[\\d.,:k]*)' : '([\\s\\S]+?)'; }) + '$');
     return { re, order, tr };
   });
   const exact = k => { const e = DICT.strings[k]; return e && e[LANG] != null ? e[LANG] : null; };
   function translate(k, depth) {
     if (LANG === 'it') return null;
+    // un testo appena tradotto non si ritraduce: evita cicli fra traduzione e osservatore
+    if (!depth && produced.has(k)) return null;
     if (memo.has(k)) return memo.get(k);
     depth = depth || 0;
     let r = exact(k);

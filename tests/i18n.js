@@ -14,6 +14,9 @@ const ROOT = path.join(__dirname, '..'), APP = path.join(ROOT, 'app'), FIX = pat
 const EXE = process.env.INREGIA_EXE;
 // dati dei fixture, non testi dell'interfaccia
 const DATA_RE = [/^Presentazione di prova$/, /^InRegia - /, /^brano [ab]$/, /^Test$/, /^Tazza calda$/, /^Nota della prima slide\.$/, /^Novità$/, /^- Prova /, /^InRegia v\d/, /^Titolo/, /^Elenco per paragrafo$/, /^(Rotazione|Ingrandisci|Trasparenza|Percorso|Impulso|Esce a destra)$/];
+let STEP = 'avvio';
+const step = n => { STEP = n; if (process.env.I18N_DEBUG) console.log('  · ' + n); };
+setTimeout(() => { console.log('ERRORE tempo scaduto durante: ' + STEP); ghErr('i18n: tempo scaduto durante: ' + STEP); process.exit(1); }, 20 * 60000).unref();
 async function until(fn, ms = 20000, step = 250) { const t = Date.now(); for (;;) { try { const v = await fn(); if (v) return v; } catch (e) {} if (Date.now() - t > ms) return null; await sleep(step); } }
 
 (async () => {
@@ -32,11 +35,15 @@ async function until(fn, ms = 20000, step = 250) { const t = Date.now(); for (;;
     fs.rmSync(path.join(data, 'settings.json'), { force: true }); // la richiesta di consenso compare di nuovo
     const env = Object.assign({}, process.env, { INREGIA_LANG: lang, INREGIA_I18N_HARVEST: harvest, INREGIA_DATA: data, INREGIA_UPDATE_FEED: feed, INREGIA_NO_POWERPOINT: '1' });
     if (!EXE) env.INREGIA_INSTALL = inst;
+    step(lang + ': avvio app');
     const app = await _electron.launch(EXE ? { executablePath: EXE, env } : { executablePath: require(path.join(APP, 'node_modules', 'electron')), args: [APP, '--no-sandbox'], env });
+    step(lang + ': libreria');
     const lib = await app.firstWindow(); await lib.waitForSelector('#v-decks', { timeout: 30000 });
     // consenso, poi avviso di aggiornamento
+    step(lang + ': consenso aggiornamenti');
     if (await until(() => lib.evaluate(() => !!document.querySelector('.dlg-bg.upd [data-a=yes]')), 10000)) { await sleep(400); await lib.click('.dlg-bg.upd [data-a=yes]'); }
     if (await until(() => lib.evaluate(() => !!document.querySelector('.dlg-bg.upd [data-a=later]')), 10000)) { await sleep(400); await lib.click('.dlg-bg.upd [data-a=later]'); }
+    step(lang + ': importazione');
     const list = await lib.evaluate(() => DP.invoke('lib:list'));
     if (!list.decks.some(d => d.id === 'Presentazione di prova')) {
       await lib.evaluate(p => DP.invoke('lib:import', [p]), pptx);
@@ -44,25 +51,32 @@ async function until(fn, ms = 20000, step = 250) { const t = Date.now(); for (;;
     }
     await sleep(600);
     await lib.click('.deck [data-a=more]').catch(() => {}); await sleep(300); await lib.keyboard.press('Escape');
+    step(lang + ': schede libreria');
     for (const v of ['music', 'settings', 'decks']) { await lib.click(`nav button[data-v=${v}]`); await sleep(700); }
     if (process.env.INREGIA_SHOTS) { fs.mkdirSync(path.join(ROOT, 'test-output'), { recursive: true }); await lib.click('nav button[data-v=settings]'); await sleep(500); await lib.screenshot({ path: path.join(ROOT, 'test-output', `i18n-${lang}-settings.png`) }); await lib.click('nav button[data-v=decks]'); await sleep(300); }
     const navLabel = await lib.evaluate(() => document.querySelector('nav button[data-v=settings]').textContent.trim());
     // relatore
+    step(lang + ': apertura relatore');
     await lib.evaluate(() => { setTimeout(() => DP.invoke('deck:open', 'Presentazione di prova'), 10); });
     const pr = await until(() => app.windows().find(w => w.url().includes('presenter.html') && !w.isClosed()), 20000);
     await pr.waitForLoadState(); await sleep(1500);
     if (await pr.evaluate(() => !!document.querySelector('.dlg-bg'))) { await pr.keyboard.press('Escape'); await sleep(300); }
     if (process.env.INREGIA_SHOTS) await pr.screenshot({ path: path.join(ROOT, 'test-output', `i18n-${lang}-presenter.png`) });
+    step(lang + ': schede relatore');
     for (const t of ['music', 'notes', 'audio']) { await pr.click(`.tab[data-tab=${t}]`); await sleep(400); }
     await pr.click('.tab[data-tab=music]'); await pr.click('#muSeg button[data-mv=lib]').catch(() => {}); await sleep(500);
     await pr.click('#muSeg button[data-mv=queue]').catch(() => {}); await sleep(300);
+    step(lang + ': scorciatoie e proiettore');
     await pr.keyboard.press('F1'); await sleep(500); await pr.keyboard.press('Escape'); await sleep(300);
     await pr.keyboard.press('F5'); await sleep(600); await pr.keyboard.press('Escape'); await sleep(300);
     // fino alla slide con il video, poi avanti senza avviarlo: avviso
+    step(lang + ': avviso video');
     for (let i = 0; i < 8 && !(await pr.evaluate(() => !!document.querySelector('.dlg-bg'))); i++) { await pr.keyboard.press('ArrowRight'); await sleep(700); }
     await sleep(500); await pr.keyboard.press('Escape'); await sleep(300);
     await pr.click('#bList').catch(() => {}); await sleep(400); await pr.keyboard.press('Escape'); await sleep(1500);
-    await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+    step(lang + ': chiusura');
+    await Promise.race([app.evaluate(({ app }) => app.exit(0)).catch(() => {}), sleep(5000)]);
+    try { app.process().kill(); } catch (e) {}
     await sleep(500);
     let miss = []; try { miss = [...new Set(fs.readFileSync(harvest, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)))]; } catch (e) {}
     const left = miss.filter(s => !DATA_RE.some(r => r.test(s)) && /[a-zà-ú]{3,}/i.test(s));
