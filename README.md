@@ -67,8 +67,11 @@ Releases are built, tested on Windows (install, use, uninstall) and published by
 - PowerPoint animations are rendered with equivalent effects (fly in, fade, wipe, zoom, split, circle); motion paths and emphasis effects become a pulse.
 - Text animated by paragraph is animated as a single block.
 
-## Code signing
-See the [code signing policy](CODE_SIGNING_POLICY.md). Free code signing provided by SignPath.io, certificate by SignPath Foundation (pending approval).
+## Code signing policy
+See the [Code signing policy](CODE_SIGNING_POLICY.md). Free code signing provided by SignPath.io, certificate by SignPath Foundation (application in progress).
+
+## Privacy
+InRegia does not collect or send any data. It connects to the internet only to download the components you choose (the app, LibreOffice, the default music), during installation or when you press the matching button in the app. Details in the [privacy policy](CODE_SIGNING_POLICY.md#privacy-policy).
 
 ## License
 [MIT](LICENSE.md). The default background music is original and released as CC0.

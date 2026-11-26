@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
@@ -107,8 +107,8 @@ jobs:
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: inregia
-          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/') && 'release-signing' || 'test-signing' }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'inregia' }}
+          signing-policy-slug: ${{ (startsWith(github.ref, 'refs/tags/') || inputs.publish) && (vars.SIGNPATH_RELEASE_POLICY || 'release-signing') || (vars.SIGNPATH_TEST_POLICY || 'test-signing') }}
           artifact-configuration-slug: app-zip
           github-artifact-id: ${{ steps.up_app.outputs.artifact-id }}
           wait-for-completion: true
@@ -143,8 +143,8 @@ jobs:
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: inregia
-          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/') && 'release-signing' || 'test-signing' }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'inregia' }}
+          signing-policy-slug: ${{ (startsWith(github.ref, 'refs/tags/') || inputs.publish) && (vars.SIGNPATH_RELEASE_POLICY || 'release-signing') || (vars.SIGNPATH_TEST_POLICY || 'test-signing') }}
           artifact-configuration-slug: setup-exe
           github-artifact-id: ${{ steps.up_setup.outputs.artifact-id }}
           wait-for-completion: true

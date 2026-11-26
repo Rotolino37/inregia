@@ -19,13 +19,24 @@ Third-party binaries shipped with the application (the Electron runtime and its 
 
 ## Roles
 
-| Role | Members |
-|---|---|
-| Committers and reviewers | [Saggiaa](https://github.com/Saggiaa) |
-| Approvers | [Saggiaa](https://github.com/Saggiaa) |
+InRegia has a single maintainer, who owns the repository and holds all three roles.
 
-Every signing request for a release requires manual approval by an approver. All team members use multi-factor authentication on GitHub and SignPath.
+| Role | Description | Members |
+|---|---|---|
+| Authors | Trusted to modify the source code without additional review | [Saggiaa](https://github.com/Saggiaa) (repository owner) |
+| Reviewers | Review every change submitted by anyone who is not an author | [Saggiaa](https://github.com/Saggiaa) |
+| Approvers | Approve each signing request | [Saggiaa](https://github.com/Saggiaa) |
 
-## Privacy
+Contributions from people outside this list are accepted only through pull requests reviewed by a reviewer. Every signing request for a release requires manual approval by an approver. All team members use multi-factor authentication on GitHub and SignPath.
 
-InRegia does not collect, store or transmit personal data or usage data. It connects to the internet only when the user asks for it: to download LibreOffice from The Document Foundation and the default background music from this repository's releases.
+## Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+In detail:
+- InRegia does not collect, store or send personal data, usage data or telemetry.
+- The installer downloads only the components the user selects: the application package and the default music from this repository's GitHub releases, and LibreOffice from The Document Foundation (download.documentfoundation.org).
+- Inside the app, the same downloads happen only when the user presses the corresponding button.
+- Presentations and music stay on the user's computer.
+
+Third-party services involved in these downloads have their own privacy policies: [GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) and [The Document Foundation](https://www.documentfoundation.org/privacy).

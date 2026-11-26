@@ -22,3 +22,5 @@ Installazione offline: metti accanto all'installer `InRegia-app-win-x64.zip`, `I
 - Le animazioni di PowerPoint sono riprodotte con effetti equivalenti; percorsi ed effetti di enfasi diventano una pulsazione.
 
 Verifica dei file: `SHA256SUMS.txt`.
+
+Code signing policy: [CODE_SIGNING_POLICY.md](https://github.com/Saggiaa/inregia/blob/main/CODE_SIGNING_POLICY.md). Privacy: InRegia non raccoglie né invia dati; si collega a internet solo per scaricare i componenti scelti.

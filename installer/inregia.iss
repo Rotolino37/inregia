@@ -72,7 +72,7 @@ Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
 
 [Messages]
 it.WelcomeLabel2=Questa procedura installa InRegia {#AppVerName}: presentazioni PowerPoint dal vivo con vista relatore, proiettore bloccabile, mixer audio e musica di sottofondo.%n%nI componenti vengono scaricati da internet durante l'installazione.
-it.SelectComponentsLabel2=Scegli i componenti da scaricare e installare. Puoi aggiungerli anche in seguito dall'app.
+it.SelectComponentsLabel2=Scegli i componenti da scaricare e installare. Puoi aggiungerli anche in seguito dall'app.%n%nPrivacy: InRegia non raccoglie né invia dati. Vengono scaricati solo i componenti selezionati, da GitHub (programma e musica) e da The Document Foundation (LibreOffice).
 
 [Types]
 Name: "full"; Description: "Completa (consigliata)"
