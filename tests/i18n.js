@@ -52,12 +52,10 @@ async function until(fn, ms = 20000, step = 250) { const t = Date.now(); for (;;
     const pr = await until(() => app.windows().find(w => w.url().includes('presenter.html') && !w.isClosed()), 20000);
     await pr.waitForLoadState(); await sleep(1500);
     if (await pr.evaluate(() => !!document.querySelector('.dlg-bg'))) { await pr.keyboard.press('Escape'); await sleep(300); }
-    log("for (const t of ['music', 'not");
     if (process.env.INREGIA_SHOTS) await pr.screenshot({ path: path.join(ROOT, 'test-output', `i18n-${lang}-presenter.png`) });
     for (const t of ['music', 'notes', 'audio']) { await pr.click(`.tab[data-tab=${t}]`); await sleep(400); }
     await pr.click('.tab[data-tab=music]'); await pr.click('#muSeg button[data-mv=lib]').catch(() => {}); await sleep(500);
     await pr.click('#muSeg button[data-mv=queue]').catch(() => {}); await sleep(300);
-    log("await pr.keyboard.press('F1');");
     await pr.keyboard.press('F1'); await sleep(500); await pr.keyboard.press('Escape'); await sleep(300);
     await pr.keyboard.press('F5'); await sleep(600); await pr.keyboard.press('Escape'); await sleep(300);
     // fino alla slide con il video, poi avanti senza avviarlo: avviso
