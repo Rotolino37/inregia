@@ -70,8 +70,8 @@ button,select,input{font:inherit;color:inherit}
 /* campi */
 select.sel{height:32px;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--s2);padding:0 8px;font-size:14px;max-width:100%;cursor:pointer}
 select.sel:hover{border-color:oklch(0.48 0.03 262)}
-.switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:14px;color:var(--t1)}
-.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch{position:relative;display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:14px;color:var(--t1)}
+.switch input{position:absolute;left:0;top:0;margin:0;opacity:0;width:1px;height:1px}
 .switch i{width:36px;height:20px;border-radius:999px;background:var(--s3);border:1px solid var(--line2);position:relative;flex:0 0 auto;transition:background-color .12s var(--ease)}
 .switch i:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--t2);transition:transform .12s var(--ease),background-color .12s}
 .switch input:checked+i{background:var(--gold);border-color:var(--gold)}

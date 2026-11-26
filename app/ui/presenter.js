@@ -80,7 +80,12 @@ function renderPreviews() {
   $('notes').textContent = s.notes || 'Nessuna nota per questa slide.';
   $('notes').classList.toggle('empty', !s.notes);
   document.querySelectorAll('#strip .th').forEach(e => { e.removeAttribute('aria-current'); e.classList.remove('nx'); });
-  const tc = $('th' + S.n); if (tc) { tc.setAttribute('aria-current', 'true'); tc.scrollIntoView({ inline: 'center', block: 'nearest' }); }
+  const tc = $('th' + S.n);
+  if (tc) { // centra la miniatura scorrendo solo la striscia (scrollIntoView sposterebbe anche la finestra)
+    tc.setAttribute('aria-current', 'true');
+    const st = $('strip'), a = tc.getBoundingClientRect(), b = st.getBoundingClientRect();
+    st.scrollTo({ left: st.scrollLeft + (a.left - b.left) - (st.clientWidth - a.width) / 2, behavior: 'smooth' });
+  }
   const kn = nextVisible(S.n, 1); if (kn && $('th' + kn)) $('th' + kn).classList.add('nx');
   updateMediaUI();
 }
@@ -630,3 +635,7 @@ function syncAudience() {
   if (ST.n > 1 && ST.n <= N) dialogBox('Riprendere la presentazione?', `<p>L'ultima volta eri alla slide ${ST.n}.</p>`, [['Dall\'inizio', '', null, ['Escape', 'Home']], [`Riprendi dalla slide ${ST.n}`, 'primary', () => go(ST.n, 'jump'), ['Enter']]], 'play');
   if (M.warnings && M.warnings.length) toast(M.warnings.join(' | '), 'warn', 7000);
 })();
+
+/* La finestra del relatore resta sempre ferma: se qualcosa (focus, browser) la fa scorrere, torna a posto. */
+addEventListener('scroll', () => { if (scrollX || scrollY) scrollTo(0, 0); }, { passive: true });
+document.addEventListener('focusin', () => { const se = document.scrollingElement; if (se && (se.scrollTop || se.scrollLeft)) { se.scrollTop = 0; se.scrollLeft = 0; } });

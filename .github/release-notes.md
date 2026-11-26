@@ -8,6 +8,13 @@
 
 Chi ha una beta: dalla beta 2 in poi basta "Aggiorna" in Impostazioni > Aggiornamenti; dalla beta 1 si installa sopra. Presentazioni e musica aggiunta restano.
 
+## Novità della v2026.12.1
+
+- **Relatore fermo**: cliccando gli interruttori "Usa" nella scheda Musica l'intera finestra del relatore poteva spostarsi verso l'alto. Corretto: la finestra non scorre più, scorrono solo i pannelli.
+- La striscia delle miniature segue la slide corrente senza muovere il resto dell'interfaccia.
+
+Aggiornamento: Impostazioni > Aggiornamenti > "Aggiorna", oppure installa sopra.
+
 ## Cosa fa InRegia
 
 - **Presentazioni PowerPoint dal vivo**: importi il .pptx (trascinandolo o scegliendolo) e lo presenti con relatore e proiettore separati. Slide fedeli all'originale: con PowerPoint installato le converte PowerPoint stesso; con LibreOffice InRegia fornisce al motore i font del documento (font cloud di Microsoft 365, installati per utente, incorporati nel file, aggiunti a mano) e segnala quelli introvabili.

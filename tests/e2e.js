@@ -192,6 +192,9 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     check('brano Opus riprodotto', !!opus, opus);
     await pr.keyboard.press('m'); await sleep(900);
     await pr.evaluate(() => { SRC.default = false; SRC.genres = null; rebuildQueue(false); });
+    // la finestra del relatore non deve mai scorrere (prima la casella dell'interruttore "Usa" la spostava in alto)
+    const fixd = await pr.evaluate(async () => { const se = document.scrollingElement; const r = []; for (const i of document.querySelectorAll('.switch input')) { i.focus(); await new Promise(z => setTimeout(z, 30)); r.push(se.scrollTop); } $('mPlay').focus(); return { over: se.scrollHeight - se.clientHeight, max: Math.max(0, ...r) }; });
+    check('relatore fermo: nessuno scorrimento della finestra', fixd.over <= 0 && fixd.max === 0, fixd);
     /* ---------------- mixer ed equalizzatore */
     await pr.click('.tab[data-tab=audio]');
     await pr.evaluate(() => FAD.mas.set(6, true)); await pr.selectOption('#eqPreset', 'Voce chiara'); await sleep(400);
