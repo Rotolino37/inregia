@@ -176,7 +176,7 @@ jobs:
           $stage = "$env:RUNNER_TEMP\setup"; New-Item -ItemType Directory -Force $stage | Out-Null
           Copy-Item dist/InRegia-Setup-*.exe, dist/InRegia-app-win-x64.zip, dist/InRegia-music-*.zip $stage
           $setup = (Get-ChildItem "$stage\InRegia-Setup-*.exe").FullName
-          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS','/COMPONENTS=app,engine,*music','/TASKS=desktopicon',"/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
+          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS','/COMPONENTS=app,engine,music,music\lofi,music\lounge,music\ambient,music\pianoforte,music\acustico,music\corporate,music\cinematico','/TASKS=desktopicon',"/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
           Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40
           if ($p.ExitCode -ne 0) { throw "Installer: codice $($p.ExitCode)" }
           $app = "$env:ProgramFiles\InRegia"
