@@ -112,6 +112,7 @@ jobs:
           artifact-configuration-slug: app-zip
           github-artifact-id: ${{ steps.up_app.outputs.artifact-id }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
           output-artifact-directory: dist/signed-app
       - name: Usa app firmata
         if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
@@ -148,6 +149,7 @@ jobs:
           artifact-configuration-slug: setup-exe
           github-artifact-id: ${{ steps.up_setup.outputs.artifact-id }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
           output-artifact-directory: dist/signed-setup
       - name: Usa installer firmato
         if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
