@@ -7,3 +7,4 @@ test-output/
 screenshots/
 tools/music/out/
 tests/fixtures/out/
+__pycache__/
