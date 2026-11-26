@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configurazione artefatto SignPath "app-zip": l'artefatto GitHub contiene InRegia-app-win-x64.zip; si firma InRegia.exe al suo interno. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <zip-file path="InRegia-app-win-x64.zip">
+      <pe-file path="InRegia.exe">
+        <authenticode-sign />
+      </pe-file>
+    </zip-file>
+  </zip-file>
+</artifact-configuration>
