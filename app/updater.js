@@ -157,6 +157,8 @@ async function loUpdate({ version, engineDir, dlDir, elevate, onP }) {
     "if (Test-Path $old) { Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue }",
     "if (Test-Path $cur) { Rename-Item -Path $cur -NewName 'libreoffice.old' }",
     "Rename-Item -Path $new -NewName 'libreoffice'",
+    "$fd = Join-Path $cur 'share\\fonts\\truetype'; New-Item -ItemType Directory -Force -Path $fd | Out-Null",
+    "& icacls.exe $fd /grant '*S-1-5-32-545:(OI)(CI)M' | Out-Null",
     "if (Test-Path $old) { Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue }",
     'exit 0',
   ].join('\r\n'), 'utf8');

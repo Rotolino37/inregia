@@ -26,6 +26,7 @@ const DIR = {
   defUser: path.join(DATA, 'music', 'default'),
   engineInstall: path.join(INSTALL, 'engine'),
   engineUser: path.join(DATA, 'engine'),
+  fonts: path.join(DATA, 'fonts'),
 };
 const SETTINGS_FILE = path.join(DATA, 'settings.json');
 const ICON = path.join(APP_DIR, 'assets', 'icon.png');
@@ -46,7 +47,7 @@ for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); } catch (e) {} };
-let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'beta', autoUpdateCheck: null, skipVersion: null }, readJson(SETTINGS_FILE, {}));
+let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'beta', autoUpdateCheck: null, skipVersion: null, renderEngine: 'auto' }, readJson(SETTINGS_FILE, {}));
 delete SETTINGS.autoProjector; // dalla beta 2 il proiettore si apre solo su richiesta
 const saveSettings = () => writeJson(SETTINGS_FILE, SETTINGS);
 
@@ -94,6 +95,7 @@ function deckList() {
       morphs: mf ? Object.keys(mf.morphs || {}).length : 0, animated: mf ? mf.slides.filter(s => s.anim).length : 0,
       thumb: mf ? url.pathToFileURL(path.join(dir, mf.slides[0].thumb)).href : null, imported: mf ? mf.imported : null,
       warnings: mf ? mf.warnings || [] : [], music: countAudio(path.join(DIR.music, id)),
+      fonts: mf && mf.fonts ? { engine: mf.fonts.engine, missing: mf.fonts.engine === 'libreoffice' ? mf.fonts.missing || [] : [] } : null,
     };
   });
   for (const q of QUEUE) {
@@ -121,9 +123,17 @@ function enqueue(paths) {
 }
 let running = false;
 function libNotify() { if (lib && !lib.isDestroyed()) lib.webContents.send('lib:changed'); }
+/* PowerPoint installato? Se sì converte lui (stesso motore che ha creato le slide). */
+let PPT = null;
+function detectPowerPoint() {
+  if (PPT !== null) return Promise.resolve(PPT);
+  if (process.platform !== 'win32' || process.env.INREGIA_NO_POWERPOINT) { PPT = false; return Promise.resolve(false); }
+  return new Promise(r => cp.execFile('reg', ['query', 'HKCR\\PowerPoint.Application\\CurVer'], { windowsHide: true }, e => { PPT = !e; r(PPT); }));
+}
 function pump() {
   if (running) return;
   const q = QUEUE.find(x => x.state === 'queued'); if (!q) return;
+  if (PPT === null) { detectPowerPoint().then(() => pump()); return; }
   const eng = engineStatus();
   if (!eng.found) { q.state = 'error'; q.error = 'Motore di conversione non installato'; libNotify(); return pump(); }
   running = true; q.state = 'running'; q.m = 'Avvio'; libNotify();
@@ -147,7 +157,8 @@ function pump() {
   };
   ipcMain.on('imp:msg', onMsg);
   w.webContents.on('render-process-gone', (e, d) => done(false, 'Importazione interrotta (' + d.reason + ')'));
-  w.loadFile(path.join(APP_DIR, 'ui', 'worker.html'), { query: { job: JSON.stringify({ pptx: q.src, outDir, soffice: eng.path, width: SETTINGS.renderWidth || 1920, profile: path.join(DATA, 'engine-profile') }) } });
+  w.loadFile(path.join(APP_DIR, 'ui', 'worker.html'), { query: { job: JSON.stringify({ pptx: q.src, outDir, soffice: eng.path, engineKind: eng.kind, width: SETTINGS.renderWidth || 1920, profile: path.join(DATA, 'engine-profile'),
+    dataDir: DATA, powerpoint: SETTINGS.renderEngine !== 'libreoffice' && PPT === true }) } });
 }
 
 /* ---------------------------------------------------------------- motore LibreOffice */
@@ -417,6 +428,35 @@ ipcMain.handle('lib:pick', async e => {
   return r.canceled ? [] : r.filePaths;
 });
 ipcMain.handle('lib:import', (e, paths) => enqueue(paths || []));
+/* font aggiunti dall'utente (usati quando il documento li richiede e il sistema non li ha) */
+const FONT_RE = /\.(ttf|otf|ttc|otc)$/i;
+function fontList() {
+  const F = require('./fonts'); const out = [];
+  let files = []; try { files = fs.readdirSync(DIR.fonts).filter(f => FONT_RE.test(f)); } catch (e) {}
+  for (const f of files) { try { for (const x of F.fontFaces(fs.readFileSync(path.join(DIR.fonts, f)))) out.push({ file: f, family: x.tfamily || x.family, style: x.tsub || x.sub }); } catch (e) {} }
+  return out;
+}
+ipcMain.handle('fonts:info', async () => ({ fonts: fontList(), dir: DIR.fonts, powerpoint: await detectPowerPoint(), engine: SETTINGS.renderEngine }));
+ipcMain.handle('fonts:add', async (e, paths) => {
+  if (!paths || !paths.length) {
+    const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: 'Aggiungi font', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Font', extensions: ['ttf', 'otf', 'ttc', 'otc'] }] });
+    if (r.canceled) return { added: [], rejected: [] };
+    paths = r.filePaths;
+  }
+  const F = require('./fonts'); const added = [], rejected = [];
+  fs.mkdirSync(DIR.fonts, { recursive: true });
+  for (const p of paths) {
+    try {
+      const buf = fs.readFileSync(p); const faces = F.fontFaces(buf);
+      if (!FONT_RE.test(p) || !faces.length) { rejected.push(path.basename(p)); continue; }
+      fs.copyFileSync(p, path.join(DIR.fonts, path.basename(p)));
+      for (const x of faces) added.push((x.tfamily || x.family) + ' ' + (x.tsub || x.sub));
+    } catch (er) { rejected.push(path.basename(p)); }
+  }
+  return { added, rejected };
+});
+ipcMain.handle('fonts:remove', (e, file) => { try { fs.unlinkSync(path.join(DIR.fonts, path.basename(file))); } catch (er) {} return fontList(); });
+ipcMain.handle('fonts:open', () => { fs.mkdirSync(DIR.fonts, { recursive: true }); shell.openPath(DIR.fonts); return true; });
 ipcMain.handle('lib:reimport', (e, id) => { const s = readJson(path.join(deckDir(id), 'source.json'), {}); return s.path ? enqueue([s.path]) : { added: [], rejected: [id] }; });
 ipcMain.handle('lib:retry', (e, id) => { const q = QUEUE.find(x => x.id === id); if (q) { q.state = 'queued'; q.error = null; pump(); libNotify(); } return true; });
 ipcMain.handle('lib:dismiss', (e, id) => { const i = QUEUE.findIndex(x => x.id === id && x.state === 'error'); if (i >= 0) QUEUE.splice(i, 1); if (!fs.existsSync(path.join(deckDir(id), 'manifest.json'))) try { fs.rmSync(deckDir(id), { recursive: true, force: true }); } catch (er) {} libNotify(); return true; });

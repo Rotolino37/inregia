@@ -28,7 +28,7 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
   const feed = path.join(tmp, 'feed.json');
   const rel = (tag, pre) => ({ tag, name: 'InRegia ' + tag, prerelease: pre, notes: '## Novità\n- Prova ' + tag, assets: [{ name: 'InRegia-Setup-' + tag + '.exe', url: 'https://example.invalid/s.exe' }] });
   fs.writeFileSync(feed, JSON.stringify([rel('v2026.11', false), rel('v2099.0', false), rel('v2099.1-beta.1', true), rel('v2099.1-beta.0', true)]));
-  const env = Object.assign({}, process.env, { INREGIA_DATA: data, INREGIA_UPDATE_FEED: feed });
+  const env = Object.assign({}, process.env, { INREGIA_DATA: data, INREGIA_UPDATE_FEED: feed, INREGIA_CLOUDFONTS: path.join(FIX, 'cloudfonts') });
   if (!process.env.INREGIA_EXE) env.INREGIA_LO_LATEST = '99.1.0';
   let launch;
   if (process.env.INREGIA_EXE) launch = { executablePath: process.env.INREGIA_EXE, args: [], env };
@@ -80,6 +80,19 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     if (!ready || ready.status !== 'ready') throw new Error('import fallito');
     check('slide e media riconosciuti', ready.slides === 7 && ready.media === 1 && ready.morphs === 1 && ready.animated === 1, ready);
     await sleep(500); await shot(lib, '02-library-ready');
+    /* ---------------- font: cloud di Office, incorporati nel file, mancanti */
+    const fop = path.join(tmp, 'Font.pptx'); fs.copyFileSync(path.join(FIX, 'fonts.pptx'), fop);
+    await lib.evaluate(p => DP.invoke('lib:import', [p]), fop);
+    const foReady = await until(async () => { const l = await lib.evaluate(() => DP.invoke('lib:list')); const d = l.decks.find(x => x.id === 'Font'); return d && (d.status === 'ready' || (d.job && d.job.state === 'error')) ? d : null; }, 600000, 1000);
+    check('deck font importato', foReady && foReady.status === 'ready', foReady && { status: foReady.status, err: foReady.job && foReady.job.error });
+    const FOM = JSON.parse(fs.readFileSync(path.join(data, 'presentations', 'Font', 'manifest.json'), 'utf8'));
+    const fo = FOM.fonts || {};
+    R.fonts = fo;
+    check('font cloud di Office forniti al motore', fo.engine === 'libreoffice' && fo.provided.some(p => p.typeface === 'InRegia Prova' && p.source === 'cloud') && fo.pdf.some(n => /InRegiaProva/.test(n)), fo);
+    check('font incorporato nel file (EOT) usato', fo.provided.some(p => p.typeface === 'InRegia Incorporato' && p.source === 'embedded') && fo.pdf.some(n => /InRegiaIncorporato/.test(n)), fo.pdf);
+    check('font introvabile segnalato', fo.missing.includes('Font Inesistente XYZ') && /^Font non trovati: Font Inesistente XYZ/.test(FOM.warnings[0] || '') && !!foReady.fonts && foReady.fonts.missing.length === 1, { missing: fo.missing, w: FOM.warnings[0] });
+    const fbtn = await lib.evaluate(() => !!document.querySelector('.deck [data-a=font], [data-a=font]'));
+    check('pulsante "Aggiungi font" sulla presentazione', fbtn, fbtn);
     /* ---------------- deck di compatibilità animazioni e transizioni */
     const fxp = path.join(tmp, 'Effetti.pptx'); fs.copyFileSync(path.join(FIX, 'effects.pptx'), fxp);
     await lib.evaluate(p => DP.invoke('lib:import', [p]), fxp);

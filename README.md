@@ -65,6 +65,11 @@ ISCC installer/inregia.iss                    # installer (Inno Setup 6)
 
 Releases are built, tested on Windows (install, use, uninstall) and published by [GitHub Actions](.github/workflows/build.yml).
 
+## Rendering engine and fonts
+
+- **PowerPoint installed** (default when present): InRegia converts the slides with PowerPoint itself, so text, fonts, effects and layout are exactly what PowerPoint shows. If PowerPoint fails for any reason, LibreOffice takes over automatically. Settings > Rendering engine can force LibreOffice.
+- **LibreOffice**: before each conversion InRegia reads which fonts the presentation uses and hands LibreOffice the ones Windows does not have installed: Microsoft 365 cloud fonts (Aptos, Montserrat and the others PowerPoint downloads), fonts installed for the current user only, fonts embedded in the .pptx (uncompressed Embedded OpenType) and fonts added in Settings > Fonts. A system font available only as a variable font is replaced by a static version when one is found. Calibri, Cambria, Arial, Times New Roman and Courier New fall back to metric-compatible fonts. Any font that cannot be found is listed on the presentation card, with a button to add it.
+
 ## PowerPoint compatibility
 
 Checked on every build with a dedicated test deck (`tests/fixtures/effects.pptx`). Effects are read from their behaviours (position, scale, rotation, opacity, reveal mask, motion path, PowerPoint formulas such as `#ppt_x`), so variants and custom timings follow the original.

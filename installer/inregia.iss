@@ -3,20 +3,20 @@
 ; Installazione offline: metti accanto al setup InRegia-app-win-x64.zip, i pacchetti InRegia-music-<genere>.zip
 ; e un file LibreOffice_*_Win_x86-64.msi; verranno usati senza scaricare nulla.
 ;
-; Compilazione:  ISCC.exe /DAppVersion=2026.12.0-beta.2 /DAppVerName="v2026.12 beta 2" /DTag=v2026.12-beta.2
-;                /DFileVer=2026.12.0.2 /DAppZipSha=<sha256> /DMusicSha_lofi=<sha256> ... installer\inregia.iss
+; Compilazione:  ISCC.exe /DAppVersion=2026.12.0-beta.3 /DAppVerName="v2026.12 beta 3" /DTag=v2026.12-beta.3
+;                /DFileVer=2026.12.0.3 /DAppZipSha=<sha256> /DMusicSha_lofi=<sha256> ... installer\inregia.iss
 
 #ifndef AppVersion
-  #define AppVersion "2026.12.0-beta.2"
+  #define AppVersion "2026.12.0-beta.3"
 #endif
 #ifndef AppVerName
-  #define AppVerName "v2026.12 beta 2"
+  #define AppVerName "v2026.12 beta 3"
 #endif
 #ifndef Tag
-  #define Tag "v2026.12-beta.2"
+  #define Tag "v2026.12-beta.3"
 #endif
 #ifndef FileVer
-  #define FileVer "2026.12.0.2"
+  #define FileVer "2026.12.0.3"
 #endif
 #ifndef AppZipSha
   #define AppZipSha ""
@@ -396,6 +396,9 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var Msi: String; RC, I: Integer;
 begin
+  { anche negli aggiornamenti: cartella dei font del motore scrivibile dagli utenti (font dei documenti) }
+  if (CurStep = ssPostInstall) and DirExists(ExpandConstant('{app}\engine\libreoffice\share\fonts\truetype')) then
+    Exec(ExpandConstant('{sys}\icacls.exe'), '"' + ExpandConstant('{app}\engine\libreoffice\share\fonts\truetype') + '" /grant *S-1-5-32-545:(OI)(CI)M', '', SW_HIDE, ewWaitUntilTerminated, RC);
   if CurStep = ssInstall then begin
     DelTree(ExpandConstant('{app}\resources'), True, True, True);
     DelTree(ExpandConstant('{app}\locales'), True, True, True);
@@ -425,6 +428,12 @@ begin
       end;
       if ((RC = 0) or (RC = 3010)) and (LOVersion <> '') then
         SaveStringToFile(ExpandConstant('{app}\engine\libreoffice\inregia-version.txt'), LOVersion, False);
+      { i font dei documenti (font cloud di Office, incorporati, aggiunti) vengono forniti al motore qui }
+      if (RC = 0) or (RC = 3010) then begin
+        ForceDirectories(ExpandConstant('{app}\engine\libreoffice\share\fonts\truetype'));
+        Exec(ExpandConstant('{sys}\icacls.exe'), '"' + ExpandConstant('{app}\engine\libreoffice\share\fonts\truetype') + '" /grant *S-1-5-32-545:(OI)(CI)M', '', SW_HIDE, ewWaitUntilTerminated, RC);
+        RC := 0;
+      end;
       if (RC <> 0) and (RC <> 3010) then
         SuppressibleMsgBox('Il motore di conversione non è stato installato (codice ' + IntToStr(RC) + '). Potrai installarlo dall''app, nella libreria.', mbError, MB_OK, IDOK);
     end;

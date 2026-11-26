@@ -76,6 +76,7 @@ function card(d) {
     <div class="dact">
       ${ready ? `<button class="btn primary" data-a="go">${ic('play')}Presenta</button>` : `<button class="btn" data-a="reimp">${ic('refresh')}Importa di nuovo</button>`}
       ${d.status === 'stale' || d.status === 'upgrade' ? `<button class="btn" data-a="reimp" title="Importa di nuovo il file .pptx">${ic('refresh')}Aggiorna</button>` : ''}
+      ${d.fonts && d.fonts.missing.length ? `<button class="btn" data-a="font" title="Font non trovati: ${esc(d.fonts.missing.join(', '))}">${ic('plus')}Aggiungi font</button>` : ''}
       <button class="btn icon" data-a="mus" title="Musica di questa presentazione">${ic('music')}</button>
       <button class="btn icon" data-a="more" title="Altre azioni" aria-haspopup="menu">${ic('dots')}</button></div></div>`;
   if (d.job) {
@@ -93,6 +94,7 @@ function card(d) {
     else if (k === 'more') openMenu(a, d);
     else if (k === 'retry') DP.invoke('lib:retry', d.id);
     else if (k === 'dismiss') DP.invoke('lib:dismiss', d.id);
+    else if (k === 'font') addFonts(null, d.id);
   });
   return el;
 }
@@ -175,6 +177,8 @@ function renderSettings() {
     <div class="srow"><div class="l"><b>Lucchetto attivo all'apertura</b><span>Il proiettore si apre già bloccato</span></div><label class="switch"><input type="checkbox" data-k="lockOnOpen"><i></i></label></div>
     <div class="srow"><div class="l"><b>Video anche nell'anteprima del relatore</b><span>Mostra il video in riproduzione nella slide corrente. Disattiva su PC molto lenti</span></div><label class="switch"><input type="checkbox" data-k="videoMirror"><i></i></label></div>
     <h2 class="sgroup">Importazione</h2>
+    <div class="srow"><div class="l"><b>Motore di conversione</b><span id="sRenT">PowerPoint riproduce le slide esattamente come le vedi in PowerPoint</span></div><select class="sel" data-k="renderEngine"><option value="auto">PowerPoint se installato, altrimenti LibreOffice</option><option value="libreoffice">Sempre LibreOffice</option></select></div>
+    <div class="srow"><div class="l"><b>Font aggiuntivi</b><span id="sFontT">InRegia usa i font di Windows, i font cloud di Microsoft 365 e quelli incorporati nel file</span></div><div class="acts"><button class="btn sm" id="sFontAdd">${ic('plus')}Aggiungi font</button><button class="btn sm quiet" id="sFontOpen">Apri cartella</button></div></div>
     <div class="srow"><div class="l"><b>Qualità delle immagini delle slide</b><span>Vale dalla prossima importazione</span></div><select class="sel" data-k="renderWidth"><option value="1920">Full HD (1920 px)</option><option value="2560">QHD (2560 px)</option><option value="3840">4K (3840 px)</option></select></div>
     <div class="srow"><div class="l"><b>Motore di conversione</b><span id="sEngT">${e.found ? (e.kind === 'bundled' ? 'LibreOffice interno a InRegia' : 'LibreOffice del sistema') : 'Non installato'}</span></div><button class="btn sm" id="sEng">${e.found && e.kind === 'bundled' ? 'Controlla' : 'Installa'}</button></div>
     <h2 class="sgroup">Aggiornamenti</h2>
@@ -189,14 +193,34 @@ function renderSettings() {
   v.querySelectorAll('[data-k]').forEach(el => {
     const k = el.dataset.k;
     if (el.type === 'checkbox') { el.checked = k === 'videoMirror' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
+    else if (k === 'renderEngine') { el.value = s[k] || 'auto'; el.onchange = () => DP.invoke('settings:set', { [k]: el.value }).then(x => { D.settings = x; toast('Vale dalla prossima importazione: usa "Importa di nuovo" sulle presentazioni già importate', 'ok', 4000); }); }
     else { el.value = String(s[k] || 1920); el.onchange = () => DP.invoke('settings:set', { [k]: +el.value }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
   });
   $('sEng').onclick = () => e.found && e.kind === 'bundled' ? checkUpdates(true) : job('Installazione del motore', 'engine:download', 'Motore installato.');
   $('sData').onclick = () => DP.invoke('open:data');
   $('sUpd').onclick = () => checkUpdates(true);
+  $('sFontAdd').onclick = () => addFonts();
+  $('sFontOpen').onclick = () => DP.invoke('fonts:open');
+  DP.invoke('fonts:info').then(fi => {
+    if (!$('sFontT')) return;
+    const fams = [...new Set(fi.fonts.map(f => f.family))];
+    $('sFontT').textContent = (fams.length ? 'Aggiunti: ' + fams.join(', ') + '. ' : '') + 'InRegia usa anche i font di Windows, i font cloud di Microsoft 365 e quelli incorporati nel file';
+    $('sRenT').textContent = fi.powerpoint ? 'PowerPoint è installato: le slide vengono riprodotte esattamente come in PowerPoint' : 'PowerPoint non è installato su questo computer: si usa LibreOffice';
+  });
   $('sBeta').checked = s.updateChannel !== 'stable';
   $('sBeta').onchange = ev => DP.invoke('settings:set', { updateChannel: ev.target.checked ? 'beta' : 'stable' }).then(x => { D.settings = x; checkUpdates(false); });
   if (UPD) paintUpd(UPD);
+}
+
+/* ------------------------------------------------------------ font */
+async function addFonts(paths, reimportId) {
+  const r = await DP.invoke('fonts:add', paths || null);
+  if (r.rejected.length) toast('Non sono font validi: ' + r.rejected.join(', '), 'bad', 6000);
+  if (!r.added.length) return false;
+  toast('Font aggiunti: ' + [...new Set(r.added)].join(', '), 'ok', 5000);
+  if (reimportId) { await DP.invoke('lib:reimport', reimportId); load(); }
+  if (view === 'settings') renderSettings();
+  return true;
 }
 
 /* ------------------------------------------------------------ aggiornamenti */

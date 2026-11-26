@@ -11,6 +11,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const F = require('./fonts');
 const os = require('os');
 const cp = require('child_process');
 const yauzl = require('yauzl');
@@ -449,13 +450,13 @@ function setBg(doc, hex) {
 }
 
 /* ------------------------------------------------------- LibreOffice */
-function runSoffice(soffice, input, outDir, profile) {
+function runSoffice(soffice, input, outDir, profile, env) {
   return new Promise((res, rej) => {
     const prof = profile || path.join(os.tmpdir(), 'inregia-lo-profile');
     const profUrl = require('url').pathToFileURL(prof).href;
     const args = ['--headless', '--invisible', '--norestore', '--nolockcheck', '--nodefault', '--nofirststartwizard',
       '-env:UserInstallation=' + profUrl, '--convert-to', 'pdf', '--outdir', outDir, input];
-    const p = cp.spawn(soffice, args, { windowsHide: true });
+    const p = cp.spawn(soffice, args, { windowsHide: true, env: Object.assign({}, process.env, env || {}) });
     let err = '';
     p.stdout.on('data', d => { err += d; });
     p.stderr.on('data', d => { err += d; });
@@ -466,6 +467,55 @@ function runSoffice(soffice, input, outDir, profile) {
       const pdf = path.join(outDir, path.basename(input).replace(/\.[^.]+$/, '') + '.pdf');
       if (fs.existsSync(pdf)) res(pdf); else rej(new Error('LibreOffice non ha prodotto il PDF (codice ' + code + '). ' + err.slice(-400)));
     });
+  });
+}
+
+/* PowerPoint (se installato): esporta il file di lavoro in PDF con lo stesso motore che ha creato le slide.
+   Non chiude PowerPoint se era già aperto dall'utente. */
+function runPowerPoint(input, outPdf, maxMs) {
+  return new Promise((res, rej) => {
+    const dir = path.dirname(outPdf), ps1 = path.join(dir, 'pptx-pdf.ps1'), flag = path.join(dir, 'pp-started.flag');
+    const q = s => "'" + String(s).replace(/'/g, "''") + "'";
+    fs.writeFileSync(ps1, [
+      "$ErrorActionPreference = 'Stop'",
+      `$in = ${q(input)}; $out = ${q(outPdf)}; $flag = ${q(flag)}`,
+      "$was = $null -ne (Get-Process POWERPNT -ErrorAction SilentlyContinue)",
+      "if (-not $was) { Set-Content -Path $flag -Value '1' }",
+      "$app = $null; $pres = $null; $code = 0",
+      'try {',
+      '  $app = New-Object -ComObject PowerPoint.Application',
+      '  try { $app.DisplayAlerts = 1 } catch {}',
+      '  $pres = $app.Presentations.Open($in, -1, 0, 0)',
+      '  try { $pres.ExportAsFixedFormat($out, 2, 2) } catch { $pres.SaveAs($out, 32) }',
+      '} catch { [Console]::Error.WriteLine($_.Exception.Message); $code = 3 }',
+      'finally {',
+      '  if ($pres) { try { $pres.Close() } catch {} }',
+      '  if ($app -and -not $was) { try { $app.Quit() } catch {} }',
+      '  if ($app) { try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($app) } catch {} }',
+      '}',
+      'exit $code',
+    ].join('\r\n'), 'utf8');
+    const p = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1], { windowsHide: true });
+    let err = '';
+    p.stdout.on('data', d => { err += d; }); p.stderr.on('data', d => { err += d; });
+    const kill = () => { try { p.kill(); } catch (e) {} if (fs.existsSync(flag)) try { cp.execSync('taskkill /IM POWERPNT.EXE /F', { windowsHide: true, stdio: 'ignore' }); } catch (e) {} };
+    const to = setTimeout(() => { kill(); rej(new Error('PowerPoint: tempo scaduto')); }, maxMs || 15 * 60 * 1000);
+    p.on('error', e => { clearTimeout(to); rej(e); });
+    p.on('close', code => {
+      clearTimeout(to);
+      if (code === 0 && fs.existsSync(outPdf) && fs.statSync(outPdf).size > 0) res(outPdf);
+      else rej(new Error('PowerPoint non ha prodotto il PDF (codice ' + code + '). ' + err.trim().slice(-300)));
+    });
+  });
+}
+/* Cartella dei font del LibreOffice interno in Programmi: la prima volta serve l'autorizzazione di Windows
+   per renderla scrivibile (l'installer lo fa già per le nuove installazioni). */
+function grantWrite(dir) {
+  return new Promise(res => {
+    const q = s => "'" + String(s).replace(/'/g, "''") + "'";
+    const cmd = `try { $p = Start-Process -FilePath icacls.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @(${q('"' + dir + '"')}, '/grant', '*S-1-5-32-545:(OI)(CI)M'); exit $p.ExitCode } catch { exit 20 }`;
+    const p = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { windowsHide: true });
+    p.on('error', () => res(false)); p.on('close', c => res(c === 0));
   });
 }
 
@@ -519,7 +569,7 @@ function mediaDuration(file) {
 
 /* --------------------------------------------------------------- main */
 async function importDeck(opt) {
-  const { pptx, outDir, soffice, width = 1920, profile } = opt;
+  const { pptx, outDir, soffice, width = 1920, profile, dataDir, engineKind, powerpoint } = opt;
   const P = (pct, msg) => opt.onProgress && opt.onProgress(Math.max(0, Math.min(100, pct)), msg);
   const warn = [];
   P(1, 'Lettura del file');
@@ -623,7 +673,7 @@ async function importDeck(opt) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'inregia-'));
     const work = path.join(tmp, 'render.pptx');
     P(8, 'Creazione file di lavoro (' + pages.length + ' pagine)');
-    {
+    const writeWork = async (work, keepMedia) => {
       const ct = parseXml(await readText(zz, '[Content_Types].xml'));
       const pr = parseXml(await readText(zz, 'ppt/_rels/presentation.xml.rels'));
       const pdoc = parseXml(presXml); const lst = desc1(pdoc, 'p', 'sldIdLst');
@@ -673,18 +723,84 @@ async function importDeck(opt) {
       for (const name of order) {
         if (modified.has(name)) { zo.addBuffer(Buffer.from(modified.get(name), 'utf8'), name); continue; }
         const en = zz.entries.get(name); if (!en) continue;
-        if (MEDIA_RE.test(name)) { zo.addBuffer(Buffer.alloc(0), name); continue; } // i media non servono al rendering
+        if (MEDIA_RE.test(name) && !keepMedia) { zo.addBuffer(Buffer.alloc(0), name); continue; } // a LibreOffice i media non servono
         zo.addBuffer(await readBuf(zz, name), name, { compress: en.compressionMethod !== 0 });
       }
       zo.end();
       await finished;
-    }
+    };
 
-    /* ---- LibreOffice ---- */
-    P(14, 'Rendering con LibreOffice (può richiedere alcuni minuti)');
-    let tick = 14; const ti = setInterval(() => { tick = Math.min(44, tick + 0.4); P(tick, 'Rendering con LibreOffice (può richiedere alcuni minuti)'); }, 1500);
-    let pdfFile;
-    try { pdfFile = await runSoffice(soffice, work, tmp, profile); } finally { clearInterval(ti); }
+    /* ---- font del documento ---- */
+    P(9, 'Controllo dei font');
+    const FONTS = { engine: null, used: [], system: [], provided: [], missing: [], pdf: [] };
+    const foEnv = {};
+    try {
+      const parts = [...zz.entries.keys()].filter(n => /^ppt\/(theme|slideMasters|slideLayouts|slides)\/[^/]+\.xml$/.test(n));
+      const xmls = []; for (const n of parts) xmls.push(await readText(zz, n));
+      FONTS.used = F.usedTypefaces(xmls);
+      // font incorporati nel file (.fntdata)
+      const embedded = [], embDir = path.join(tmp, 'embfonts');
+      for (const ef of desc(pres, 'p', 'embeddedFont')) {
+        const fe = kid(ef, 'font'); const typeface = fe ? fe.getAttribute('typeface') : '';
+        for (const k of ['regular', 'bold', 'italic', 'boldItalic']) {
+          const el = kid(ef, k); if (!el) continue;
+          const r = presRels.get(el.getAttributeNS(NS.r, 'id')); if (!r) continue;
+          const buf = await readBuf(zz, r.target); const ttf = buf && F.eotToFont(buf);
+          if (!ttf) { warn.push(`Font incorporato "${typeface}" (${k}) in un formato compresso non supportato`); continue; }
+          fs.mkdirSync(embDir, { recursive: true });
+          const f = path.join(embDir, `${embedded.length}.ttf`); fs.writeFileSync(f, ttf);
+          embedded.push({ typeface, file: f, faces: F.fontFaces(ttf) });
+        }
+      }
+      const faces = F.buildIndex(dataDir, dataDir ? path.join(dataDir, 'fonts-index.json') : null);
+      const rs = F.resolve(FONTS.used, faces, embedded);
+      FONTS.system = rs.system; FONTS.provided = rs.provided; FONTS.missing = rs.missing;
+      if (rs.files.length) {
+        if (process.platform === 'win32' && engineKind === 'bundled') {
+          const fdir = path.join(path.dirname(soffice), '..', 'share', 'fonts', 'truetype');
+          try { F.installInto(rs.files, fdir); }
+          catch (e) {
+            if (e.code === 'EPERM' || e.code === 'EACCES') {
+              P(9, 'Autorizzazione di Windows per i font del documento');
+              if (await grantWrite(fdir)) F.installInto(rs.files, fdir);
+              else { warn.push('Font del documento non forniti al motore: autorizzazione di Windows negata'); FONTS.missing.push(...rs.provided.map(x => x.typeface)); FONTS.provided = []; }
+            } else throw e;
+          }
+        } else if (process.platform !== 'win32') {
+          const fdir = path.join(tmp, 'fonts'); F.installInto(rs.files, fdir);
+          foEnv.FONTCONFIG_FILE = F.fontconfigFile(fdir, path.join(tmp, 'fonts.conf'));
+        } else { warn.push('LibreOffice di sistema: installa in Windows i font ' + rs.provided.map(x => x.typeface).join(', ')); }
+      }
+    } catch (e) { warn.push('Controllo dei font non riuscito: ' + (e.message || e)); }
+
+    /* ---- conversione: PowerPoint se installato (fedeltà massima), altrimenti o in caso di errore LibreOffice ---- */
+    let pdfFile = null, msg = '', tick = 10;
+    const ti = setInterval(() => { tick = Math.min(44, tick + 0.4); P(tick, msg); }, 1500);
+    try {
+      if (powerpoint) {
+        msg = 'Rendering con PowerPoint (può richiedere alcuni minuti)'; P(10, 'Creazione file di lavoro (' + pages.length + ' pagine)');
+        const wpp = path.join(tmp, 'render-pp.pptx');
+        try {
+          await writeWork(wpp, true); P(14, msg);
+          const out = await runPowerPoint(wpp, path.join(tmp, 'render-pp.pdf'), Math.min(15 * 60000, 90000 + pages.length * 3000));
+          // il PDF deve avere esattamente una pagina per ogni immagine da creare
+          const chk = await window.pdfjsLib.getDocument({ data: new Uint8Array(fs.readFileSync(out)), verbosity: 0 }).promise;
+          const np = chk.numPages; await chk.destroy();
+          if (np !== pages.length) throw new Error(`PDF con ${np} pagine invece di ${pages.length}`);
+          pdfFile = out; FONTS.engine = 'powerpoint';
+        } catch (e) { warn.push('PowerPoint non ha convertito la presentazione, usato LibreOffice: ' + (e.message || e)); pdfFile = null; }
+        try { fs.unlinkSync(wpp); } catch (e) {}
+      }
+      if (!pdfFile) {
+        P(12, 'Creazione file di lavoro (' + pages.length + ' pagine)');
+        await writeWork(work, false);
+        msg = 'Rendering con LibreOffice (può richiedere alcuni minuti)'; tick = 14; P(14, msg);
+        pdfFile = await runSoffice(soffice, work, tmp, profile, foEnv); FONTS.engine = 'libreoffice';
+      }
+    } finally { clearInterval(ti); }
+    try { FONTS.pdf = F.pdfFonts(fs.readFileSync(pdfFile)); } catch (e) {}
+    if (FONTS.engine === 'libreoffice' && FONTS.missing.length)
+      warn.unshift('Font non trovati: ' + FONTS.missing.join(', ') + '. Il testo che li usa è mostrato con un font sostitutivo: aggiungi i file dei font in Impostazioni, sezione Font, poi aggiorna la presentazione.');
 
     /* ---- pagine -> immagini ---- */
     for (const d of ['slides', 'thumbs', 'base', 'img', 'video']) fs.mkdirSync(path.join(outDir, d), { recursive: true });
@@ -785,7 +901,7 @@ async function importDeck(opt) {
     const manifest = {
       version: MANIFEST_VERSION, app: 'InRegia', name: path.basename(pptx).replace(/\.pptx$/i, ''), source: path.basename(pptx),
       sourceSize: st.size, sourceMtime: Math.round(st.mtimeMs), imported: new Date().toISOString(),
-      width, height: H, aspect: SW / SH, slides, morphs: M, warnings: warn,
+      width, height: H, aspect: SW / SH, slides, morphs: M, warnings: warn, fonts: FONTS,
     };
     fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 1));
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
