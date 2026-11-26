@@ -1,4 +1,7 @@
 'use strict';
+
+// su GitHub Actions i fallimenti diventano annotazioni, leggibili senza accesso ai log
+const ghErr = m => { if (process.env.GITHUB_ACTIONS) console.log('::error::' + String(m).replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A').slice(0, 900)); };
 /* Copertura delle traduzioni: per ogni lingua apre libreria, musica, impostazioni, relatore e finestre di dialogo
  * e raccoglie i testi rimasti in italiano. Fallisce se ne trova (esclusi i dati: nomi di file, brani, note).
  * Uso: xvfb-run node tests/i18n.js   (INREGIA_EXE per l'app installata) */
@@ -68,7 +71,7 @@ async function until(fn, ms = 20000, step = 250) { const t = Date.now(); for (;;
     report[lang] = { navLabel, untranslated: left };
     const expected = { en: 'Settings', de: 'Einstellungen', fr: 'Paramètres', es: 'Ajustes' }[lang];
     const pass = left.length === 0 && navLabel.includes(expected);
-    if (!pass) ok = false;
+    if (!pass) { ok = false; ghErr('FAIL ' + lang + ': ' + JSON.stringify(left)); }
     console.log((pass ? 'PASS ' : 'FAIL ') + lang + ': ' + (left.length ? left.length + ' testi non tradotti: ' + JSON.stringify(left) : 'tutto tradotto') + ' (impostazioni: ' + navLabel + ')');
   }
   fs.mkdirSync(path.join(ROOT, 'test-output'), { recursive: true });
@@ -76,4 +79,4 @@ async function until(fn, ms = 20000, step = 250) { const t = Date.now(); for (;;
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
   console.log(ok ? 'TRADUZIONI COMPLETE' : 'TRADUZIONI INCOMPLETE');
   process.exit(ok ? 0 : 1);
-})().catch(e => { console.log('ERRORE', e); process.exit(1); });
+})().catch(e => { console.log('ERRORE', e); ghErr('ERRORE ' + (e && e.stack || e)); process.exit(1); });

@@ -1,4 +1,7 @@
 'use strict';
+
+// su GitHub Actions i fallimenti diventano annotazioni, leggibili senza accesso ai log
+const ghErr = m => { if (process.env.GITHUB_ACTIONS) console.log('::error::' + String(m).replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A').slice(0, 900)); };
 /*
  * InRegia - test end-to-end (Linux e Windows)
  *   node tests/e2e.js                 usa Electron di sviluppo (app/)
@@ -17,7 +20,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 fs.mkdirSync(OUT, { recursive: true });
 
 const R = { ok: true, checks: [], metrics: {}, errors: [] };
-function check(name, cond, info) { R.checks.push({ name, ok: !!cond, info: info === undefined ? null : info }); if (!cond) R.ok = false; console.log((cond ? 'PASS ' : 'FAIL ') + name + (info !== undefined ? '  ' + JSON.stringify(info) : '')); }
+function check(name, cond, info) { if (!cond) ghErr('FAIL ' + name + (info !== undefined ? '  ' + JSON.stringify(info) : '')); R.checks.push({ name, ok: !!cond, info: info === undefined ? null : info }); if (!cond) R.ok = false; console.log((cond ? 'PASS ' : 'FAIL ') + name + (info !== undefined ? '  ' + JSON.stringify(info) : '')); }
 async function until(fn, ms, step) { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step || 200); } }
 async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.join(OUT, name + '.png') }); }
 
@@ -43,7 +46,7 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
   }
   let app;
   try { app = await _electron.launch(launch); }
-  catch (e) { R.ok = false; R.errors.push('Avvio dell\'app non riuscito: ' + String(e && e.stack || e)); fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(R, null, 1)); console.log('ERRORE avvio', e); process.exit(1); }
+  catch (e) { R.ok = false; R.errors.push('Avvio dell\'app non riuscito: ' + String(e && e.stack || e)); fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(R, null, 1)); console.log('ERRORE avvio', e); ghErr('ERRORE avvio ' + (e && e.stack || e)); process.exit(1); }
   const pageErr = [];
   const hook = w => { w.on('pageerror', e => pageErr.push(w.url().split('/').pop().split('?')[0] + ': ' + e.message)); w.on('console', m => { if (m.type() === 'error') pageErr.push(w.url().split('/').pop().split('?')[0] + ' console: ' + m.text()); }); };
   app.on('window', hook);
@@ -282,7 +285,7 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     check('transizioni del deck effetti completate', (await pr2.textContent('#cnt')) === 'Slide 8 di 8', await pr2.textContent('#cnt'));
     check('nessun errore JavaScript', pageErr.length === 0, pageErr.slice(0, 5));
   } catch (e) {
-    R.ok = false; R.errors.push(String(e && e.stack || e)); console.log('ERRORE', e);
+    R.ok = false; R.errors.push(String(e && e.stack || e)); console.log('ERRORE', e); ghErr('ERRORE ' + (e && e.stack || e));
   } finally {
     fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(R, null, 1));
     console.log('METRICHE', JSON.stringify(R.metrics));

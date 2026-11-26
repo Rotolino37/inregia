@@ -1,4 +1,7 @@
 'use strict';
+
+// su GitHub Actions i fallimenti diventano annotazioni, leggibili senza accesso ai log
+const ghErr = m => { if (process.env.GITHUB_ACTIONS) console.log('::error::' + String(m).replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A').slice(0, 900)); };
 /* Test degli aggiornamenti con un click sull'app installata (solo Windows, in CI).
  *   node tests/update-win.js lo   -> aggiorna (reinstalla) LibreOffice dall'app, con richiesta di autorizzazione
  *   node tests/update-win.js app  -> l'app scarica e avvia il setup, si chiude, il setup la aggiorna e la riapre
@@ -15,7 +18,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const EXE = process.env.INREGIA_EXE;
 const mode = process.argv[2];
 let ok = true;
-const check = (n, c, i) => { console.log((c ? 'PASS ' : 'FAIL ') + n + (i !== undefined ? '  ' + JSON.stringify(i) : '')); if (!c) ok = false; };
+const check = (n, c, i) => { if (!c) ghErr('FAIL ' + n + (i !== undefined ? '  ' + JSON.stringify(i) : '')); console.log((c ? 'PASS ' : 'FAIL ') + n + (i !== undefined ? '  ' + JSON.stringify(i) : '')); if (!c) ok = false; };
 const running = () => { try { return /InRegia\.exe/i.test(cp.execSync('tasklist /FI "IMAGENAME eq InRegia.exe" /NH').toString()); } catch (e) { return false; } };
 
 (async () => {
@@ -67,4 +70,4 @@ const running = () => { try { return /InRegia\.exe/i.test(cp.execSync('tasklist 
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
   console.log(ok ? 'TEST AGGIORNAMENTO SUPERATI' : 'TEST AGGIORNAMENTO FALLITI');
   process.exit(ok ? 0 : 1);
-})().catch(e => { console.log('ERRORE', e); process.exit(1); });
+})().catch(e => { console.log('ERRORE', e); ghErr('ERRORE ' + (e && e.stack || e)); process.exit(1); });
