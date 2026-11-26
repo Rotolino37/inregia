@@ -473,7 +473,7 @@ function musUI() {
   setBtn('muPlay', MST.playing ? 'pause' : 'play');
   const x = MST.id ? TR.get(MST.id) : null;
   $('npName').textContent = x ? x.name : (QUEUE.length ? 'Pronto: ' + (TR.get(QUEUE[0]) || {}).name : 'Nessun brano in coda');
-  $('npTime').textContent = fmtT(MST.cur) + ' / ' + fmtT(MST.dur);
+  $('npTime').textContent = (MST.held ? 'In pausa durante il video · ' : '') + fmtT(MST.cur) + ' / ' + fmtT(MST.dur);
   $('npProg').style.width = (MST.dur ? Math.min(100, MST.cur / MST.dur * 100) : 0) + '%';
   markCur();
 }

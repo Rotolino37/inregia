@@ -176,7 +176,15 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     check('video avviato con un click su Play', vplay, vplay);
     const duck = await au.evaluate(() => A.musDuck.gain.value);
     check('musica abbassata durante il video', duck < 0.5, duck);
+    // "fino al silenzio": a fine dissolvenza la musica va in pausa e riprende dallo stesso punto quando il video si ferma
+    await pr.evaluate(() => { const e = $('duckDb'); e.value = '-60'; e.dispatchEvent(new Event('change')); }); await sleep(2600);
+    const held = await au.evaluate(() => { const D = A.decks[MUS.deck]; return { paused: D.el.paused, t: D.el.currentTime, playing: MUS.playing }; });
+    const heldUI = await pr.evaluate(() => MST.held && /In pausa durante il video/.test($('npTime').textContent));
+    check('fino al silenzio: musica in pausa durante il video', held.paused && held.playing && heldUI, Object.assign({ heldUI }, held));
     await pr.keyboard.press('s'); await sleep(1500);
+    const res = await au.evaluate(() => { const D = A.decks[MUS.deck]; return { paused: D.el.paused, t: D.el.currentTime, g: A.musDuck.gain.value }; });
+    check('fine del video: musica ripresa dallo stesso punto in dissolvenza', !res.paused && res.t >= held.t && res.t < held.t + 3, { held: held.t, res });
+    await pr.evaluate(() => { const e = $('duckDb'); e.value = '-18'; e.dispatchEvent(new Event('change')); }); await sleep(300);
     // crossfade al brano successivo
     const id1 = await pr.evaluate(() => MST.id); await pr.keyboard.press('n'); await sleep(1800);
     const id2 = await pr.evaluate(() => MST.id);

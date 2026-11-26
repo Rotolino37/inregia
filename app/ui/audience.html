@@ -61,7 +61,7 @@ function initAudio() {
   A.presM = meter(A.presFader);
   A.presSp = AC.createAnalyser(); A.presSp.fftSize = 4096; A.presSp.smoothingTimeConstant = .7; A.eqP.out.connect(A.presSp);
   // musica
-  A.musIn = AC.createGain(); A.musDuck = AC.createGain(); A.musFader = AC.createGain();
+  A.musIn = AC.createGain(); A.musDuck = AC.createGain(); A.musFader = AC.createGain(); A._duckPaused = new Set(); A._duckAt = 0;
   A.eqM = eqChain(A.musIn); A.eqM.out.connect(A.musDuck); A.musDuck.connect(A.musFader); A.musFader.connect(A.mix);
   A.musM = meter(A.musFader);
   A.musSp = AC.createAnalyser(); A.musSp.fftSize = 4096; A.musSp.smoothingTimeConstant = .7; A.eqM.out.connect(A.musSp);
@@ -189,7 +189,17 @@ function musTick() {
   // abbassamento durante i media della slide
   const duck = MIX.duck.on && anyMediaPlaying();
   const tg = duck ? dbToG(MIX.duck.db) : 1;
-  if (A._duck !== tg) { A._duck = tg; A.musDuck.gain.setTargetAtTime(tg, AC.currentTime, duck ? .25 : .6); }
+  if (A._duck !== tg) { A._duck = tg; A._duckAt = AC.currentTime; A.musDuck.gain.setTargetAtTime(tg, AC.currentTime, duck ? .25 : .6); }
+  // "fino al silenzio": finita la dissolvenza la musica va in pausa (riprende dal punto esatto)
+  const silent = duck && MIX.duck.db <= -60;
+  if (silent && AC.currentTime - A._duckAt > 1.4) {
+    for (const D of A.decks) if (!D.el.paused) { D.el.pause(); A._duckPaused.add(D); }
+  } else if (!duck && A._duckPaused.size) {
+    // fine del video: riparte il brano corrente, il guadagno risale in dissolvenza
+    const cur = MUS.deck >= 0 ? A.decks[MUS.deck] : null;
+    for (const D of A._duckPaused) if (D === cur && MUS.playing) D.el.play().catch(() => {});
+    A._duckPaused.clear();
+  }
 }
 
 /* ------------------------------------------------------------ comandi */
@@ -240,7 +250,7 @@ setInterval(() => {
   st.media = MEDIA.map(o => o.dead ? { dead: true } : { cur: o.el.currentTime, dur: isFinite(o.el.duration) ? o.el.duration : (o.md.dur || 0), paused: o.el.paused, ended: o.el.ended || !!o.endedTrim, started: o.started, stopped: o.stopped, err: o.err || null });
   if (AC) {
     const D = MUS.deck >= 0 ? A.decks[MUS.deck] : null;
-    st.mus = { idx: MUS.idx, id: D && D.item ? D.item.id : null, playing: MUS.playing, cur: D ? D.el.currentTime : 0, dur: D && isFinite(D.el.duration) ? D.el.duration : 0 };
+    st.mus = { idx: MUS.idx, id: D && D.item ? D.item.id : null, playing: MUS.playing, held: !!(A && A._duckPaused && A._duckPaused.size), cur: D ? D.el.currentTime : 0, dur: D && isFinite(D.el.duration) ? D.el.duration : 0 };
     const pk = x => [peak(x.l, x.b), peak(x.r, x.b)];
     st.lv = { pres: pk(A.presM), mus: pk(A.musM), mas: pk(A.masM) };
     if (tick % 2 === 0) st.sp = { p: bands(A.presSp), m: bands(A.musSp) };
