@@ -23,9 +23,9 @@ InRegia has a single maintainer, who owns the repository and holds all three rol
 
 | Role | Description | Members |
 |---|---|---|
-| Authors | Trusted to modify the source code without additional review | [Saggiaa](https://github.com/Saggiaa) (repository owner) |
-| Reviewers | Review every change submitted by anyone who is not an author | [Saggiaa](https://github.com/Saggiaa) |
-| Approvers | Approve each signing request | [Saggiaa](https://github.com/Saggiaa) |
+| Authors | Trusted to modify the source code without additional review | [Rotolino37](https://github.com/Rotolino37) (repository owner) |
+| Reviewers | Review every change submitted by anyone who is not an author | [Rotolino37](https://github.com/Rotolino37) |
+| Approvers | Approve each signing request | [Rotolino37](https://github.com/Rotolino37) |
 
 Contributions from people outside this list are accepted only through pull requests reviewed by a reviewer. Every signing request for a release requires manual approval by an approver. All team members use multi-factor authentication on GitHub and SignPath.
 

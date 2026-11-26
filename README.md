@@ -4,7 +4,7 @@ InRegia turns a PC and a projector into a control room for live presentations: a
 
 ## Install
 
-1. Download `InRegia-Setup-<version>.exe` from [Releases](https://github.com/Saggiaa/inregia/releases).
+1. Download `InRegia-Setup-<version>.exe` from [Releases](https://github.com/Rotolino37/inregia/releases).
 2. Choose the folder (default `C:\Program Files\InRegia`) and the components: the LibreOffice conversion engine and the default background music are selected by default.
 3. The installer downloads everything, creates the desktop and Start menu shortcuts, and registers the uninstaller in Windows Settings > Apps.
 

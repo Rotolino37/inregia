@@ -30,7 +30,7 @@ const SETTINGS_FILE = path.join(DATA, 'settings.json');
 const ICON = path.join(APP_DIR, 'assets', 'icon.png');
 const MANIFEST_VERSION = 3;
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|flac|opus|weba)$/i;
-const MUSIC_PACK_URL = 'https://github.com/Saggiaa/inregia/releases/latest/download/InRegia-music-default.zip';
+const MUSIC_PACK_URL = 'https://github.com/Rotolino37/inregia/releases/latest/download/InRegia-music-default.zip';
 const RESERVED = new Set(['global', 'default']);
 
 for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true }); } catch (e) {}

@@ -24,7 +24,7 @@
 #ifndef MusicZipSha
   #define MusicZipSha ""
 #endif
-#define Repo "Saggiaa/inregia"
+#define Repo "Rotolino37/inregia"
 #define LOFallback "26.8.3"
 #define AppZip "InRegia-app-win-x64.zip"
 #define MusicZip "InRegia-music-default.zip"

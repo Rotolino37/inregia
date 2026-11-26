@@ -23,4 +23,4 @@ Installazione offline: metti accanto all'installer `InRegia-app-win-x64.zip`, `I
 
 Verifica dei file: `SHA256SUMS.txt`.
 
-Code signing policy: [CODE_SIGNING_POLICY.md](https://github.com/Saggiaa/inregia/blob/main/CODE_SIGNING_POLICY.md). Privacy: InRegia non raccoglie né invia dati; si collega a internet solo per scaricare i componenti scelti.
+Code signing policy: [CODE_SIGNING_POLICY.md](https://github.com/Rotolino37/inregia/blob/main/CODE_SIGNING_POLICY.md). Privacy: InRegia non raccoglie né invia dati; si collega a internet solo per scaricare i componenti scelti.
