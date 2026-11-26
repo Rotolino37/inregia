@@ -22,3 +22,14 @@
 .mcat.open .chev .ic{transform:rotate(90deg)}
 .mcatbody{display:none;padding-left:18px}
 .mcat.open .mcatbody{display:flex;flex-direction:column;gap:2px}
+/* filtro per genere */
+.gfilter{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line2);background:var(--s2);color:var(--t2);
+  font:inherit;font-size:14px;cursor:pointer;transition:background .15s var(--ease),border-color .15s var(--ease),color .15s var(--ease)}
+.chip:hover{background:var(--s3);color:var(--t1)}
+.chip .num{font-size:12px;color:var(--t3)}
+.chip.on{border-color:var(--gold);color:var(--t1);background:oklch(0.3 0.05 85 / 0.35)}
+.chip.on .num{color:var(--gold)}
+.chip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.gmiss{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 2px 2px;border-top:1px solid var(--line);font-size:14px}
+.gmiss .muted{margin-right:4px}

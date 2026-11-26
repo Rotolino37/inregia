@@ -1,10 +1,10 @@
 ; InRegia - installer web (Inno Setup 6.3+)
 ; Scarica il programma, il motore di conversione LibreOffice e la musica predefinita.
-; Installazione offline: metti accanto al setup InRegia-app-win-x64.zip, InRegia-music-default.zip
+; Installazione offline: metti accanto al setup InRegia-app-win-x64.zip, i pacchetti InRegia-music-<genere>.zip
 ; e un file LibreOffice_*_Win_x86-64.msi; verranno usati senza scaricare nulla.
 ;
 ; Compilazione:  ISCC.exe /DAppVersion=2026.12.0-beta.1 /DAppVerName="v2026.12 beta 1" /DTag=v2026.12-beta.1
-;                /DFileVer=2026.12.0.1 /DAppZipSha=<sha256> /DMusicZipSha=<sha256> installer\inregia.iss
+;                /DFileVer=2026.12.0.1 /DAppZipSha=<sha256> /DMusicSha_lofi=<sha256> ... installer\inregia.iss
 
 #ifndef AppVersion
   #define AppVersion "2026.12.0-beta.1"
@@ -21,13 +21,30 @@
 #ifndef AppZipSha
   #define AppZipSha ""
 #endif
-#ifndef MusicZipSha
-  #define MusicZipSha ""
+#ifndef MusicSha_lofi
+  #define MusicSha_lofi ""
+#endif
+#ifndef MusicSha_lounge
+  #define MusicSha_lounge ""
+#endif
+#ifndef MusicSha_ambient
+  #define MusicSha_ambient ""
+#endif
+#ifndef MusicSha_pianoforte
+  #define MusicSha_pianoforte ""
+#endif
+#ifndef MusicSha_acustico
+  #define MusicSha_acustico ""
+#endif
+#ifndef MusicSha_corporate
+  #define MusicSha_corporate ""
+#endif
+#ifndef MusicSha_cinematico
+  #define MusicSha_cinematico ""
 #endif
 #define Repo "Rotolino37/inregia"
 #define LOFallback "26.8.3"
 #define AppZip "InRegia-app-win-x64.zip"
-#define MusicZip "InRegia-music-default.zip"
 
 [Setup]
 AppId={{6B1F2E4A-7C3D-4E59-9A1B-2D4C8E7F6A10}
@@ -81,7 +98,14 @@ Name: "custom"; Description: "Personalizzata"; Flags: iscustom
 [Components]
 Name: "app"; Description: "InRegia (circa 110 MB da scaricare)"; Types: full custom; Flags: fixed
 Name: "engine"; Description: "Motore di conversione LibreOffice, serve per importare i .pptx (circa 350 MB)"; Types: full
-Name: "music"; Description: "Musica di sottofondo predefinita (circa 35 MB)"; Types: full
+Name: "music"; Description: "Musica di sottofondo predefinita: oltre un'ora per genere, formato Opus"; Types: full
+Name: "music\lofi"; Description: "Lofi Chill (circa 38 MB)"; Types: full
+Name: "music\lounge"; Description: "Lounge (circa 38 MB)"; Types: full
+Name: "music\ambient"; Description: "Ambient (circa 36 MB)"; Types: full
+Name: "music\pianoforte"; Description: "Pianoforte (circa 38 MB)"; Types: full
+Name: "music\acustico"; Description: "Acustico (circa 36 MB)"; Types: full
+Name: "music\corporate"; Description: "Corporate (circa 40 MB)"; Types: full
+Name: "music\cinematico"; Description: "Cinematico (circa 36 MB)"; Types: full
 
 [Tasks]
 Name: "desktopicon"; Description: "Crea un collegamento sul desktop"; GroupDescription: "Collegamenti:"
@@ -157,6 +181,62 @@ begin
   if Result = '' then Result := ExpandConstant('{tmp}\') + Name;
 end;
 
+{ ---------------- musica per genere ---------------- }
+const
+  NGenres = 7;
+
+function GSlug(I: Integer): String;
+begin
+  case I of
+    0: Result := 'lofi';
+    1: Result := 'lounge';
+    2: Result := 'ambient';
+    3: Result := 'pianoforte';
+    4: Result := 'acustico';
+    5: Result := 'corporate';
+    6: Result := 'cinematico';
+  end;
+end;
+
+function GFolder(I: Integer): String;
+begin
+  case I of
+    0: Result := 'Lofi Chill';
+    1: Result := 'Lounge';
+    2: Result := 'Ambient';
+    3: Result := 'Pianoforte';
+    4: Result := 'Acustico';
+    5: Result := 'Corporate';
+    6: Result := 'Cinematico';
+  end;
+end;
+
+function GSha(I: Integer): String;
+begin
+  case I of
+    0: Result := '{#MusicSha_lofi}';
+    1: Result := '{#MusicSha_lounge}';
+    2: Result := '{#MusicSha_ambient}';
+    3: Result := '{#MusicSha_pianoforte}';
+    4: Result := '{#MusicSha_acustico}';
+    5: Result := '{#MusicSha_corporate}';
+    6: Result := '{#MusicSha_cinematico}';
+  end;
+end;
+
+function GZip(I: Integer): String;
+begin
+  Result := 'InRegia-music-' + GSlug(I) + '.zip';
+end;
+
+function AnyMusic: Boolean;
+var I: Integer;
+begin
+  Result := False;
+  for I := 0 to NGenres - 1 do
+    if WizardIsComponentSelected('music\' + GSlug(I)) then Result := True;
+end;
+
 { ---------------- versione di LibreOffice ---------------- }
 function IsDigits(const S: String): Boolean;
 var I: Integer;
@@ -220,14 +300,16 @@ end;
 
 { ---------------- download ---------------- }
 function DoDownloads: Boolean;
+var I: Integer;
 begin
   Result := True;
   if Downloaded then Exit;
   DownloadPage.Clear;
   if LocalFile('{#AppZip}') = '' then
     DownloadPage.Add('https://github.com/{#Repo}/releases/download/{#Tag}/{#AppZip}', '{#AppZip}', '{#AppZipSha}');
-  if WizardIsComponentSelected('music') and (LocalFile('{#MusicZip}') = '') then
-    DownloadPage.Add('https://github.com/{#Repo}/releases/download/{#Tag}/{#MusicZip}', '{#MusicZip}', '{#MusicZipSha}');
+  for I := 0 to NGenres - 1 do
+    if WizardIsComponentSelected('music\' + GSlug(I)) and (LocalFile(GZip(I)) = '') then
+      DownloadPage.Add('https://github.com/{#Repo}/releases/download/{#Tag}/' + GZip(I), GZip(I), GSha(I));
   if WizardIsComponentSelected('engine') and (LocalMsi = '') then
     DownloadPage.Add(LibreOfficeUrl, 'LibreOffice.msi', '');
   DownloadPage.Show;
@@ -312,7 +394,7 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var Msi: String; RC: Integer;
+var Msi: String; RC, I: Integer;
 begin
   if CurStep = ssInstall then begin
     DelTree(ExpandConstant('{app}\resources'), True, True, True);
@@ -322,9 +404,13 @@ begin
     WizardForm.ProgressGauge.Style := npbstMarquee;
     SetStatus('Installazione di InRegia');
     Extract(Src('{#AppZip}'), ExpandConstant('{app}'));
-    if WizardIsComponentSelected('music') then begin
-      SetStatus('Installazione della musica predefinita');
-      Extract(Src('{#MusicZip}'), ExpandConstant('{app}\music\default'));
+    if AnyMusic then begin
+      DelTree(ExpandConstant('{app}\music\default'), True, True, True);
+      for I := 0 to NGenres - 1 do
+        if WizardIsComponentSelected('music\' + GSlug(I)) then begin
+          SetStatus('Installazione della musica: ' + GFolder(I));
+          Extract(Src(GZip(I)), ExpandConstant('{app}\music\default'));
+        end;
     end;
     if WizardIsComponentSelected('engine') then begin
       SetStatus('Installazione del motore di conversione: può richiedere alcuni minuti');

@@ -417,16 +417,18 @@ const SRC_LABEL = { deck: 'Presentazione', global: 'Globale', default: 'Predefin
 function rebuildQueue(fromLib) {
   if (fromLib) { TR = new Map(); for (const t of mlib.allTracks()) TR.set(t.id, t); }
   if (SRC.default == null) SRC.default = !mlibData.deck.length && !mlibData.global.length;
-  const ok = id => { const t = TR.get(id); return t && (SRC[t.src] || MANUAL.has(id)); };
+  const ok = id => { const t = TR.get(id); return t && (srcOk(t) || MANUAL.has(id)); };
   const q = QUEUE.filter(ok);
-  for (const [id, t] of TR) if (!q.includes(id) && !EXCL.has(id) && SRC[t.src]) q.push(id);
+  for (const [id, t] of TR) if (!q.includes(id) && !EXCL.has(id) && srcOk(t)) q.push(id);
   QUEUE = q; sendQueue(); renderQueue(); save();
 }
+// sorgente attiva; per la musica predefinita solo i generi scelti (null = tutti)
+const srcOk = t => !!SRC[t.src] && (t.src !== 'default' || !SRC.genres || SRC.genres.includes(t.cat));
 function sendQueue() { send({ t: 'mus', a: 'queue', queue: QUEUE.map(id => TR.get(id)).filter(Boolean).map(x => ({ id: x.id, url: x.url, name: x.name })) }); }
 const inQueue = id => QUEUE.includes(id);
 function toggleQueue(t) {
   if (inQueue(t.id)) { QUEUE = QUEUE.filter(x => x !== t.id); EXCL.add(t.id); MANUAL.delete(t.id); }
-  else { EXCL.delete(t.id); if (!SRC[t.src]) MANUAL.add(t.id); QUEUE.push(t.id); }
+  else { EXCL.delete(t.id); if (!srcOk(t)) MANUAL.add(t.id); QUEUE.push(t.id); }
   sendQueue(); renderQueue(); save();
 }
 let dragId = null;
@@ -614,6 +616,8 @@ function syncAudience() {
   mlib = new MusicLibrary($('mv-lib'), {
     deckId: DECK, deckName: M.name, mode: 'presenter', inQueue, toggleQueue,
     sourceOn: k => !!SRC[k], setSource: (k, on) => { SRC[k] = on; rebuildQueue(false); mlib.render(); toast(on ? `Brani "${SRC_LABEL[k]}" aggiunti alla coda` : `Brani "${SRC_LABEL[k]}" tolti dalla coda`, 'ok', 2200); },
+    genres: () => SRC.genres || null,
+    setGenres: g => { SRC.genres = g; if (SRC.default) rebuildQueue(false); else save(); },
     onChange: d => { mlibData = d; rebuildQueue(true); },
   });
   S.n = 1; S.step = 0;

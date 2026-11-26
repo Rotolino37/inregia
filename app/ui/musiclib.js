@@ -34,7 +34,7 @@
   /* opt: { deckId, deckName, mode: 'library'|'presenter', inQueue(id), toggleQueue(track), sourceOn(src), setSource(src,on), onChange() } */
   class MusicLibrary {
     constructor(host, opt) {
-      this.host = host; this.o = opt || {}; this.data = null; this.open = { default: new Set() };
+      this.host = host; this.o = opt || {}; this.data = null; this.open = { default: new Set() }; this.gsel = null;
       host.classList.add('mlib');
       host.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
       host.addEventListener('drop', e => e.preventDefault());
@@ -73,8 +73,36 @@
       }
       const list = document.createElement('div'); list.className = 'mlist'; s.appendChild(list);
       if (key === 'default') {
-        if (!this.data.default.length) list.innerHTML = `<div class="mempty">La musica predefinita non è installata. <button class="btn xs" data-a="dl">Scarica musica predefinita</button></div>`;
+        // filtro per genere: nel relatore decide anche quali generi entrano in coda
+        const sel = this.o.genres ? this.o.genres() : this.gsel;
+        const cats = this.data.default.map(c => c.cat);
+        if (cats.length > 1) {
+          const f = document.createElement('div'); f.className = 'gfilter'; f.setAttribute('role', 'group'); f.setAttribute('aria-label', 'Filtra per genere');
+          const chip = (label, on, n) => `<button class="chip${on ? ' on' : ''}" aria-pressed="${on}" data-g="${esc(label)}">${esc(label === '*' ? 'Tutti i generi' : label)}${n != null ? `<span class="num">${n}</span>` : ''}</button>`;
+          f.innerHTML = chip('*', !sel) + this.data.default.map(c => chip(c.cat, !!sel && sel.includes(c.cat), c.tracks.length)).join('');
+          f.onclick = ev => {
+            const b = ev.target.closest('.chip'); if (!b) return;
+            const g = b.dataset.g; let next = null;
+            if (g !== '*') { const cur = new Set(sel || []); if (cur.has(g)) cur.delete(g); else cur.add(g); next = cur.size && cur.size < cats.length ? [...cur] : null; }
+            if (next && next.length === 1) this.open.default.add(next[0]);
+            if (this.o.setGenres) this.o.setGenres(next); else this.gsel = next;
+            this.render();
+          };
+          s.insertBefore(f, list);
+        }
+        const miss = (this.data.genres || []).filter(g => !g.installed);
+        if (!this.data.default.length) list.innerHTML = `<div class="mempty">La musica predefinita non è installata.</div>`;
+        if (miss.length) {
+          const m = document.createElement('div'); m.className = 'gmiss';
+          if (this.o.downloadGenres) {
+            m.innerHTML = `<span class="muted">Altri generi disponibili:</span>` + miss.map(g => `<button class="btn xs" data-dl="${g.slug}" title="Circa ${g.mb} MB, oltre un'ora di musica">${ic('download')}${esc(g.name)}</button>`).join('') +
+              (miss.length > 1 ? `<button class="btn xs quiet" data-dl="*">Scarica tutti (${miss.reduce((a, g) => a + g.mb, 0)} MB)</button>` : '');
+            m.onclick = ev => { const b = ev.target.closest('[data-dl]'); if (b) this.o.downloadGenres(b.dataset.dl === '*' ? miss.map(g => g.slug) : [b.dataset.dl]); };
+          } else m.innerHTML = `<span class="muted">Altri generi (${miss.map(g => esc(g.name)).join(', ')}) si scaricano dalla libreria, scheda Musica.</span>`;
+          s.appendChild(m);
+        }
         for (const c of this.data.default) {
+          if (sel && !sel.includes(c.cat)) continue;
           const g = document.createElement('div'); g.className = 'mcat' + (this.open.default.has(c.cat) ? ' open' : '');
           g.innerHTML = `<button class="mcathead"><span class="chev">${ic('next')}</span><span class="nm">${esc(c.cat)}</span><span class="muted num">${c.tracks.length}</span>${this.o.mode === 'presenter' ? `<span class="btn xs quiet" data-a="cat">Aggiungi tutti</span>` : ''}</button><div class="mcatbody"></div>`;
           g.querySelector('.mcathead').onclick = ev => {
@@ -91,7 +119,6 @@
       s.querySelector('[data-a=dir]').onclick = () => DP.invoke('music:open', target);
       const ab = s.querySelector('[data-a=add]'); if (ab) ab.onclick = async () => { const f = await DP.invoke('music:pick'); if (f.length) this.add(target, f); };
       const swi = s.querySelector('.switch input'); if (swi) swi.onchange = () => { this.o.setSource(key, swi.checked); };
-      const dl = s.querySelector('[data-a=dl]'); if (dl) dl.onclick = () => this.o.downloadDefault ? this.o.downloadDefault() : null;
       return s;
     }
     row(t, removable, target) {
@@ -116,7 +143,7 @@
       if (this.o.deckId) h.appendChild(this.section('deck', 'Questa presentazione', `Solo per <b>${esc(this.o.deckName || this.o.deckId)}</b>.`, this.data.deck, 'deck:' + this.o.deckId));
       h.appendChild(this.section('global', 'Globale', 'Disponibile in tutte le presentazioni.', this.data.global, 'global'));
       const nDef = this.data.default.reduce((a, c) => a + c.tracks.length, 0);
-      h.appendChild(this.section('default', 'Predefinita', 'Brani inclusi con InRegia, divisi per genere. Non si possono eliminare.', new Array(nDef), 'default'));
+      h.appendChild(this.section('default', 'Predefinita', this.o.mode === 'presenter' ? 'Brani inclusi con InRegia. Scegli i generi: con "Usa" attivo entrano in coda solo quelli selezionati.' : 'Brani inclusi con InRegia, divisi per genere. Non si possono eliminare.', new Array(nDef), 'default'));
       h.scrollTop = y;
     }
   }

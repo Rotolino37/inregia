@@ -26,7 +26,7 @@ jobs:
   linux:
     name: Test su Linux e musica predefinita
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,12 +50,24 @@ jobs:
           name: report-linux
           path: test-output/report.json
           if-no-files-found: ignore
-      - name: Generazione musica predefinita
-        run: python3 tools/music/generate.py --out dist/music --zip dist/InRegia-music-default.zip
+      # La musica dipende solo dal generatore: si rigenera solo quando cambia.
+      - name: Cache musica predefinita
+        id: muscache
+        uses: actions/cache@v4
+        with:
+          path: dist/musiczip
+          key: music-${{ hashFiles('tools/music/generate.py') }}
+      - name: Generazione musica predefinita (7 generi, oltre un'ora ciascuno)
+        if: steps.muscache.outputs.cache-hit != 'true'
+        run: python3 tools/music/generate.py --out dist/music --zipdir dist/musiczip --jobs $(nproc)
+      - name: Controllo musica
+        run: |
+          ls -la dist/musiczip
+          test $(ls dist/musiczip/InRegia-music-*.zip | wc -l) -eq 7
       - uses: actions/upload-artifact@v4
         with:
           name: music
-          path: dist/InRegia-music-default.zip
+          path: dist/musiczip/InRegia-music-*.zip
 
   windows:
     name: Build, installazione e test su Windows
@@ -127,8 +139,12 @@ jobs:
       - name: Compilazione installer
         run: |
           $appSha = (Get-FileHash dist/InRegia-app-win-x64.zip -Algorithm SHA256).Hash.ToLower()
-          $musSha = (Get-FileHash dist/InRegia-music-default.zip -Algorithm SHA256).Hash.ToLower()
-          & $env:ISCC "/DAppVersion=${{ steps.ver.outputs.version }}" "/DAppVerName=${{ steps.ver.outputs.name }}" "/DTag=${{ steps.ver.outputs.tag }}" "/DFileVer=${{ steps.ver.outputs.filever }}" "/DAppZipSha=$appSha" "/DMusicZipSha=$musSha" installer/inregia.iss
+          $defs = @("/DAppVersion=${{ steps.ver.outputs.version }}", "/DAppVerName=${{ steps.ver.outputs.name }}", "/DTag=${{ steps.ver.outputs.tag }}", "/DFileVer=${{ steps.ver.outputs.filever }}", "/DAppZipSha=$appSha")
+          foreach ($z in Get-ChildItem dist/InRegia-music-*.zip) {
+            $slug = $z.BaseName -replace '^InRegia-music-', ''
+            $defs += "/DMusicSha_$slug=" + (Get-FileHash $z.FullName -Algorithm SHA256).Hash.ToLower()
+          }
+          & $env:ISCC @defs installer/inregia.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC: $LASTEXITCODE" }
           Get-ChildItem dist
       - name: Carica installer da firmare
@@ -158,17 +174,18 @@ jobs:
       - name: Installazione silenziosa (programma, LibreOffice, musica)
         run: |
           $stage = "$env:RUNNER_TEMP\setup"; New-Item -ItemType Directory -Force $stage | Out-Null
-          Copy-Item dist/InRegia-Setup-*.exe, dist/InRegia-app-win-x64.zip, dist/InRegia-music-default.zip $stage
+          Copy-Item dist/InRegia-Setup-*.exe, dist/InRegia-app-win-x64.zip, dist/InRegia-music-*.zip $stage
           $setup = (Get-ChildItem "$stage\InRegia-Setup-*.exe").FullName
-          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS','/COMPONENTS=app,engine,music','/TASKS=desktopicon',"/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
+          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS','/COMPONENTS=app,engine,*music','/TASKS=desktopicon',"/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
           Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40
           if ($p.ExitCode -ne 0) { throw "Installer: codice $($p.ExitCode)" }
           $app = "$env:ProgramFiles\InRegia"
           foreach ($f in @("$app\InRegia.exe", "$app\resources\app\main.js", "$env:PUBLIC\Desktop\InRegia.lnk")) { if (-not (Test-Path $f)) { throw "Manca $f" } }
           $so = Get-ChildItem "$app\engine" -Recurse -Filter soffice.com | Select-Object -First 1
           if (-not $so) { throw 'LibreOffice non installato' }
-          $mus = (Get-ChildItem "$app\music\default" -Recurse -Filter *.mp3).Count
-          if ($mus -lt 5) { throw "Musica predefinita incompleta: $mus" }
+          $mus = (Get-ChildItem "$app\music\default" -Recurse -Filter *.opus).Count
+          $gen = (Get-ChildItem "$app\music\default" -Directory).Count
+          if ($mus -lt 100 -or $gen -ne 7) { throw "Musica predefinita incompleta: $mus brani, $gen generi" }
           Write-Host "Installazione OK: $($so.FullName), $mus brani"
       - name: Test end-to-end sull'app installata
         env:
@@ -205,7 +222,7 @@ jobs:
           path: |
             dist/InRegia-Setup-*.exe
             dist/InRegia-app-win-x64.zip
-            dist/InRegia-music-default.zip
+            dist/InRegia-music-*.zip
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
       name: ${{ steps.ver.outputs.name }}
@@ -231,7 +248,7 @@ jobs:
           TAG="${{ needs.windows.outputs.tag }}"
           TITLE="InRegia ${{ needs.windows.outputs.name }}"
           PRE=""; case "$TAG" in *-*) PRE="--prerelease";; esac
-          FILES="dist/InRegia-Setup-$TAG.exe dist/InRegia-app-win-x64.zip dist/InRegia-music-default.zip dist/SHA256SUMS.txt"
+          FILES="dist/InRegia-Setup-$TAG.exe dist/InRegia-app-win-x64.zip $(ls dist/InRegia-music-*.zip | tr '\n' ' ') dist/SHA256SUMS.txt"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" $FILES --clobber
             gh release edit "$TAG" --title "$TITLE" $PRE --notes-file .github/release-notes.md

@@ -267,7 +267,7 @@ function setView(v) {
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.v === v)));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
   if (v === 'settings') renderSettings();
-  if (v === 'music' && !mlib) { mlib = new MusicLibrary($('mview'), { mode: 'library', downloadDefault: () => job('Musica predefinita', 'music:downloadDefault', 'Musica predefinita installata.') }); mlib.load(); }
+  if (v === 'music' && !mlib) { mlib = new MusicLibrary($('mview'), { mode: 'library', downloadGenres: slugs => job('Musica predefinita', 'music:downloadGenres', slugs.length === 1 ? 'Genere scaricato.' : 'Generi scaricati.', slugs) }); mlib.load(); }
 }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => setView(b.dataset.v));
 load();

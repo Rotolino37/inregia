@@ -35,6 +35,8 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
   else {
     const inst = path.join(tmp, 'install'); fs.mkdirSync(path.join(inst, 'music', 'default', 'Test'), { recursive: true });
     for (const f of ['brano_a.mp3', 'brano_b.mp3']) fs.copyFileSync(path.join(FIX, f), path.join(inst, 'music', 'default', 'Test', f));
+    fs.mkdirSync(path.join(inst, 'music', 'default', 'Lofi Chill'), { recursive: true });
+    fs.copyFileSync(path.join(FIX, 'brano_c.opus'), path.join(inst, 'music', 'default', 'Lofi Chill', '01 Tazza calda.opus'));
     env.INREGIA_INSTALL = inst;
     launch = { executablePath: require(path.join(APP, 'node_modules', 'electron')), args: process.platform === 'linux' ? ['--no-sandbox', APP] : [APP], env };
   }
@@ -79,6 +81,9 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     const src = await lib.evaluate(id => DP.invoke('music:sources', id), ready.id);
     check('musica a tre livelli', ag.ok && ad.ok && src.global.length === 1 && src.deck.length === 1 && src.default.length >= 1, { g: src.global.length, d: src.deck.length, def: src.default.map(c => c.cat + ':' + c.tracks.length) });
     await lib.click('nav button[data-v=music]'); await sleep(400); await shot(lib, '03-library-music');
+    const gen = { list: src.genres.map(g => g.slug + (g.installed ? '+' : '-')), chips: await lib.evaluate(() => document.querySelectorAll('#mview .chip').length), dl: await lib.evaluate(() => document.querySelectorAll('#mview [data-dl]').length) };
+    if (!process.env.INREGIA_EXE) check('generi musicali: filtro e download dei mancanti', src.genres.length === 7 && src.genres.find(g => g.slug === 'lofi').installed && gen.chips === 3 && gen.dl === 7, gen);
+    else check('generi musicali installati', src.genres.filter(g => g.installed).length >= 1 && gen.chips >= 2, gen);
     await lib.click('nav button[data-v=decks]');
     /* ---------------- relatore */
     await lib.evaluate(id => { setTimeout(() => DP.invoke('deck:open', id), 10); }, ready.id);
@@ -138,6 +143,16 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     const id2 = await pr.evaluate(() => MST.id);
     check('brano successivo', id1 && id2 && id1 !== id2, [id1, id2]);
     await pr.keyboard.press('m'); await sleep(1200);
+    // filtro per genere sulla coda e riproduzione Opus
+    const gq = await pr.evaluate(() => { const g = mlibData.default.map(c => c.cat).find(c => /Lofi/.test(c)) || mlibData.default[0].cat; SRC.default = true; SRC.genres = [g]; rebuildQueue(false); return { g, q: QUEUE.slice() }; });
+    const onlyG = gq.q.filter(x => x.startsWith('d:')).every(x => x.startsWith('d:' + gq.g + '/')) && gq.q.some(x => x.startsWith('d:' + gq.g + '/'));
+    check('filtro per genere applicato alla coda', onlyG, gq);
+    const oi = gq.q.findIndex(x => x.startsWith('d:' + gq.g + '/'));
+    await pr.evaluate(i => send({ t: 'mus', a: 'play', idx: i }), oi);
+    const opus = await until(() => au.evaluate(() => { const D = A.decks[MUS.deck]; return D && D.item && /\.opus$/i.test(D.el.src) && D.el.currentTime > 0.5 && { t: D.el.currentTime, src: decodeURIComponent(D.el.src).split('/').slice(-2).join('/') }; }), 8000);
+    check('brano Opus riprodotto', !!opus, opus);
+    await pr.keyboard.press('m'); await sleep(900);
+    await pr.evaluate(() => { SRC.default = false; SRC.genres = null; rebuildQueue(false); });
     /* ---------------- mixer ed equalizzatore */
     await pr.click('.tab[data-tab=audio]');
     await pr.evaluate(() => FAD.mas.set(6, true)); await pr.selectOption('#eqPreset', 'Voce chiara'); await sleep(400);

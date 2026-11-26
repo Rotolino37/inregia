@@ -31,7 +31,15 @@ const SETTINGS_FILE = path.join(DATA, 'settings.json');
 const ICON = path.join(APP_DIR, 'assets', 'icon.png');
 const MANIFEST_VERSION = 3;
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|flac|opus|weba)$/i;
-const MUSIC_PACK_URL = 'https://github.com/Rotolino37/inregia/releases/latest/download/InRegia-music-default.zip';
+const REPO = 'Rotolino37/inregia';
+/* Musica predefinita: un pacchetto per genere, pubblicato con ogni release (Opus 64 kbps). */
+const MUSIC_GENRES = [
+  { slug: 'lofi', name: 'Lofi Chill', mb: 38 }, { slug: 'lounge', name: 'Lounge', mb: 38 }, { slug: 'ambient', name: 'Ambient', mb: 36 },
+  { slug: 'pianoforte', name: 'Pianoforte', mb: 38 }, { slug: 'acustico', name: 'Acustico', mb: 36 }, { slug: 'corporate', name: 'Corporate', mb: 40 },
+  { slug: 'cinematico', name: 'Cinematico', mb: 36 },
+];
+// "2026.12.0-beta.2" -> "v2026.12-beta.2", "2026.12.1" -> "v2026.12.1" (come nel workflow di build)
+const releaseTag = v => { const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?/); return m ? (m[4] ? `v${m[1]}.${m[2]}-${m[4]}.${m[5]}` : `v${m[1]}.${m[2]}.${m[3]}`) : null; };
 const RESERVED = new Set(['global', 'default']);
 
 for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true }); } catch (e) {}
@@ -215,7 +223,7 @@ function audioFiles(dir) {
   let f = []; try { f = fs.readdirSync(dir, { withFileTypes: true }).filter(x => x.isFile() && AUDIO_EXT.test(x.name)).map(x => x.name); } catch (e) {}
   return f.sort((a, b) => a.localeCompare(b, 'it', { numeric: true }));
 }
-const prettyName = f => f.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/^\d+\s*[-.]\s*/, '');
+const prettyName = f => f.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/^\d{1,3}(?:\s*[-.]\s*|\s+)(?=\S)/, '');
 function musicSources(deckId) {
   const track = (file, src, id, cat) => ({ id, src, cat, name: prettyName(path.basename(file)), file, url: url.pathToFileURL(file).href });
   const def = new Map();
@@ -231,6 +239,7 @@ function musicSources(deckId) {
     global: audioFiles(DIR.global).map(f => track(path.join(DIR.global, f), 'global', 'g:' + f)),
     deck: deckId ? audioFiles(path.join(DIR.music, deckId)).map(f => track(path.join(DIR.music, deckId, f), 'deck', 'p:' + f)) : [],
     dirs: { global: DIR.global, deck: deckId ? path.join(DIR.music, deckId) : null },
+    genres: MUSIC_GENRES.map(g => ({ slug: g.slug, name: g.name, mb: g.mb, installed: def.has(g.name) })),
   };
   return out;
 }
@@ -443,13 +452,35 @@ ipcMain.handle('music:remove', (e, target, name) => {
   try { if (target === 'default') throw new Error('no'); const f = path.join(targetDir(target), path.basename(name)); fs.unlinkSync(f); return true; } catch (err) { return false; }
 });
 ipcMain.handle('music:open', (e, target) => { try { const d = targetDir(target); fs.mkdirSync(d, { recursive: true }); return shell.openPath(d); } catch (er) { return ''; } });
-ipcMain.handle('music:downloadDefault', async e => {
-  try {
-    const tmp = path.join(app.getPath('temp'), 'inregia-music.zip');
-    await download(MUSIC_PACK_URL, tmp, (p, m) => e.sender.send('job:progress', { p, m }), 'Download musica predefinita');
-    e.sender.send('job:progress', { p: -1, m: 'Estrazione' });
+async function musicGenreUrl(slug) {
+  const name = `InRegia-music-${slug}.zip`, tag = releaseTag(app.getVersion());
+  if (tag) { try { const r = await net.fetch(`https://github.com/${REPO}/releases/download/${tag}/${name}`, { method: 'HEAD' }); if (r.ok) return `https://github.com/${REPO}/releases/download/${tag}/${name}`; } catch (e) {} }
+  // release dell'app non trovata (versione di sviluppo): la release più recente che contiene il pacchetto
+  const list = await (await net.fetch(`https://api.github.com/repos/${REPO}/releases?per_page=15`, { headers: { Accept: 'application/vnd.github+json' } })).json();
+  for (const r of Array.isArray(list) ? list : []) { const a = (r.assets || []).find(x => x.name === name); if (a) return a.browser_download_url; }
+  throw new Error('Pacchetto ' + name + ' non trovato');
+}
+async function downloadGenres(slugs, send) {
+  const done = [];
+  for (const [i, slug] of slugs.entries()) {
+    const g = MUSIC_GENRES.find(x => x.slug === slug); if (!g) continue;
+    const label = `${g.name}${slugs.length > 1 ? ` (${i + 1} di ${slugs.length})` : ''}`;
+    send(-1, 'Ricerca del pacchetto ' + g.name);
+    const tmp = path.join(app.getPath('temp'), `inregia-music-${slug}.zip`);
+    await download(await musicGenreUrl(slug), tmp, send, 'Download ' + label);
+    send(-1, 'Estrazione ' + label);
+    try { fs.rmSync(path.join(DIR.defUser, g.name), { recursive: true, force: true }); } catch (er) {}
     await unzipTo(tmp, DIR.defUser); try { fs.unlinkSync(tmp); } catch (er) {}
-    return { ok: true };
+    done.push(slug);
+  }
+  return done;
+}
+ipcMain.handle('music:downloadGenres', async (e, slugs) => {
+  try {
+    const want = Array.isArray(slugs) && slugs.length ? slugs : MUSIC_GENRES.filter(g => !musicSources(null).genres.find(x => x.slug === g.slug).installed).map(g => g.slug);
+    const done = await downloadGenres(want, (p, m) => e.sender.send('job:progress', { p, m }));
+    for (const w of [pres, lib]) if (w && !w.isDestroyed()) w.webContents.send('music:changed');
+    return { ok: true, done };
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 ipcMain.handle('deck:open', (e, id) => {
