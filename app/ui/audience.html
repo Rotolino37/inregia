@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>InRegia - Proiettore</title>
+<link rel="stylesheet" href="deckview.css">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none;user-select:none}
+  #stage{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#000;overflow:hidden}
+  .media{position:absolute;object-fit:fill;background:transparent;opacity:0;z-index:20;pointer-events:none;transition:opacity .25s}
+  .media.vis{opacity:1}
+  #cover{position:fixed;inset:0;z-index:40;display:none}
+  #ptr{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:radial-gradient(circle,#fff 0,#ff3b4a 35%,rgba(255,40,60,.55) 60%,rgba(255,40,60,0) 72%);
+       box-shadow:0 0 18px 6px rgba(255,40,60,.45);z-index:30;display:none;pointer-events:none}
+  #lock{position:fixed;inset:0;z-index:60;display:none;cursor:none}
+</style>
+</head>
+<body>
+<div id="stage"><div id="ptr"></div></div>
+<div id="cover"></div>
+<div id="lock"></div>
+<script src="deckview.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const send = m => DP.send('a2p', m);
+let M = null, BASE = '', view = null, locked = false;
+
+/* ------------------------------------------------------------ stage */
+function fit() {
+  if (!M) return;
+  const W = innerWidth, H = innerHeight, ar = M.aspect || 16 / 9;
+  let w = W, h = W / ar; if (h > H) { h = H; w = H * ar; }
+  const st = $('stage'); st.style.width = Math.round(w) + 'px'; st.style.height = Math.round(h) + 'px';
+}
+addEventListener('resize', fit);
+
+/* ------------------------------------------------------------ audio */
+const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const dbToG = (db, mute) => (mute || db <= -60) ? 0 : Math.pow(10, db / 20);
+let AC = null, A = {};
+let MIX = { pres: { db: 0, mute: false }, mus: { db: -8, mute: false }, mas: { db: 0, mute: false }, eqP: { on: true, bands: BANDS.map(() => 0) }, eqM: { on: true, bands: BANDS.map(() => 0) }, duck: { on: true, db: -60 } };
+function meter(node) {
+  const sp = AC.createChannelSplitter(2), l = AC.createAnalyser(), r = AC.createAnalyser();
+  l.fftSize = r.fftSize = 1024; node.connect(sp); sp.connect(l, 0); sp.connect(r, 1);
+  return { l, r, b: new Float32Array(1024) };
+}
+function peak(a, b) { a.getFloatTimeDomainData(b); let p = 0; for (let i = 0; i < b.length; i++) { const x = b[i] < 0 ? -b[i] : b[i]; if (x > p) p = x; } return p > 0 ? Math.max(-90, 20 * Math.log10(p)) : -90; }
+function eqChain(input) {
+  const f = BANDS.map((hz, i) => { const b = AC.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === BANDS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = hz; b.Q.value = 1.3; b.gain.value = 0; return b; });
+  let last = input; f.forEach(b => { last.connect(b); last = b; });
+  return { f, out: last };
+}
+function initAudio() {
+  if (AC) return;
+  AC = new AudioContext({ latencyHint: 'playback' });
+  A.mix = AC.createGain();
+  // presentazione
+  A.presIn = AC.createGain(); A.presFader = AC.createGain();
+  A.eqP = eqChain(A.presIn); A.eqP.out.connect(A.presFader); A.presFader.connect(A.mix);
+  A.presM = meter(A.presFader);
+  A.presSp = AC.createAnalyser(); A.presSp.fftSize = 4096; A.presSp.smoothingTimeConstant = .7; A.eqP.out.connect(A.presSp);
+  // musica
+  A.musIn = AC.createGain(); A.musDuck = AC.createGain(); A.musFader = AC.createGain();
+  A.eqM = eqChain(A.musIn); A.eqM.out.connect(A.musDuck); A.musDuck.connect(A.musFader); A.musFader.connect(A.mix);
+  A.musM = meter(A.musFader);
+  A.musSp = AC.createAnalyser(); A.musSp.fftSize = 4096; A.musSp.smoothingTimeConstant = .7; A.eqM.out.connect(A.musSp);
+  A.decks = [0, 1].map(() => { const el = new Audio(); el.preload = 'auto'; const s = AC.createMediaElementSource(el); const g = AC.createGain(); g.gain.value = 0; s.connect(g); g.connect(A.musIn); return { el, g, xf: false, item: null }; });
+  // master + limitatore
+  A.mas = AC.createGain(); A.lim = AC.createDynamicsCompressor();
+  A.lim.threshold.value = -1.5; A.lim.knee.value = 0; A.lim.ratio.value = 20; A.lim.attack.value = .002; A.lim.release.value = .12;
+  A.mix.connect(A.mas); A.mas.connect(A.lim); A.lim.connect(AC.destination);
+  A.masM = meter(A.lim);
+  A.sb = new Uint8Array(A.presSp.frequencyBinCount);
+  applyMix();
+}
+function applyMix() {
+  if (!AC) return; const t = AC.currentTime, k = .03;
+  A.presFader.gain.setTargetAtTime(dbToG(MIX.pres.db, MIX.pres.mute), t, k);
+  A.musFader.gain.setTargetAtTime(dbToG(MIX.mus.db, MIX.mus.mute), t, k);
+  A.mas.gain.setTargetAtTime(dbToG(MIX.mas.db, MIX.mas.mute), t, k);
+  A.eqP.f.forEach((b, i) => b.gain.setTargetAtTime(MIX.eqP.on ? MIX.eqP.bands[i] : 0, t, .05));
+  A.eqM.f.forEach((b, i) => b.gain.setTargetAtTime(MIX.eqM.on ? MIX.eqM.bands[i] : 0, t, .05));
+}
+const resume = () => { if (AC && AC.state !== 'running') AC.resume().catch(() => {}); };
+
+/* ------------------------------------------------------------ media slide */
+let MEDIA = [], cur = { n: 0, step: 0 };
+function clearMedia() {
+  for (const m of MEDIA) { try { m.el.pause(); m.el.removeAttribute('src'); m.el.load(); m.src && m.src.disconnect(); } catch (e) {} m.el.remove(); }
+  MEDIA = [];
+}
+function buildMedia(n) {
+  clearMedia(); initAudio();
+  const s = M.slides[n - 1]; if (!s) return;
+  for (const md of s.media) {
+    if (!md.playable) { MEDIA.push({ md, el: document.createElement('video'), dead: true, started: false }); continue; }
+    const el = document.createElement(md.kind === 'video' ? 'video' : 'audio');
+    el.className = 'media'; el.preload = 'auto'; el.playsInline = true; el.disablePictureInPicture = true;
+    el.src = BASE + md.src; el.volume = Math.max(0, Math.min(1, md.vol == null ? 1 : md.vol)); el.muted = !!md.mute;
+    if (md.kind === 'video' && md.rect) { el.style.left = md.rect.x + '%'; el.style.top = md.rect.y + '%'; el.style.width = md.rect.w + '%'; el.style.height = md.rect.h + '%'; $('stage').appendChild(el); }
+    const src = AC.createMediaElementSource(el); src.connect(A.presIn);
+    const o = { md, el, src, started: false, stopped: true };
+    el.addEventListener('playing', () => { o.started = true; o.stopped = false; el.classList.add('vis'); });
+    el.addEventListener('error', () => { o.err = (el.error && el.error.code) || 'errore'; send({ t: 'mediaerr', n: cur.n, idx: MEDIA.indexOf(o), code: o.err }); });
+    el.addEventListener('timeupdate', () => {
+      const end = md.trimEnd > 0 && isFinite(el.duration) ? el.duration - md.trimEnd : 0;
+      if (end && el.currentTime >= end) { if (md.loop) el.currentTime = md.trimSt || 0; else { el.pause(); o.endedTrim = true; } }
+    });
+    el.addEventListener('ended', () => { if (md.loop) { el.currentTime = md.trimSt || 0; el.play(); } });
+    el.addEventListener('loadedmetadata', () => { if (md.trimSt) el.currentTime = md.trimSt; });
+    MEDIA.push(o);
+  }
+}
+function mediaCmd(m) {
+  const o = MEDIA[m.idx || 0]; if (!o || o.dead) return;
+  const el = o.el; resume();
+  const play = () => { if (o.endedTrim || el.ended) { el.currentTime = o.md.trimSt || 0; o.endedTrim = false; } o.stopped = false; el.play().catch(err => send({ t: 'mediaerr', n: cur.n, idx: m.idx || 0, code: String(err && err.name || err) })); };
+  switch (m.a) {
+    case 'toggle': if (el.paused) play(); else el.pause(); break;
+    case 'play': play(); break;
+    case 'pause': el.pause(); break;
+    case 'stop': el.pause(); el.currentTime = o.md.trimSt || 0; o.stopped = true; el.classList.remove('vis'); break;
+    case 'seek': if (isFinite(el.duration)) el.currentTime = Math.max(0, Math.min(el.duration - .05, m.to)); break;
+    case 'rel': if (isFinite(el.duration)) el.currentTime = Math.max(0, Math.min(el.duration - .05, el.currentTime + m.d)); break;
+  }
+}
+const anyMediaPlaying = () => MEDIA.some(o => !o.dead && !o.el.paused && !o.el.ended);
+
+/* ------------------------------------------------------------ musica */
+const MUS = { queue: [], idx: -1, deck: -1, playing: false, opts: { xf: 4, shuffle: false, repeat: 'all' }, played: new Set(), fadeStop: false };
+function pickNext(dir) {
+  const Q = MUS.queue; if (!Q.length) return -1;
+  if (MUS.opts.repeat === 'one' && dir === 0) return MUS.idx >= 0 ? MUS.idx : 0;
+  if (MUS.opts.shuffle && Q.length > 1) {
+    let pool = Q.map((_, i) => i).filter(i => i !== MUS.idx && !MUS.played.has(Q[i].id));
+    if (!pool.length) { if (MUS.opts.repeat === 'off' && dir === 0) return -1; MUS.played.clear(); pool = Q.map((_, i) => i).filter(i => i !== MUS.idx); }
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  let i = MUS.idx + (dir < 0 ? -1 : 1);
+  if (i >= Q.length) { if (MUS.opts.repeat === 'off' && dir === 0) return -1; i = 0; }
+  if (i < 0) i = Q.length - 1;
+  return i;
+}
+function ramp(g, to, sec) { const t = AC.currentTime; g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(to, t + Math.max(.02, sec)); }
+function startTrack(i, fade) {
+  initAudio(); resume();
+  const item = MUS.queue[i]; if (!item) return;
+  const old = MUS.deck >= 0 ? A.decks[MUS.deck] : null;
+  const nd = MUS.deck === 0 ? 1 : 0, D = A.decks[nd];
+  D.xf = false; D.item = item; D.el.src = item.url; D.el.currentTime = 0;
+  D.el.onended = () => { if (MUS.deck === nd && !D.xf) { const k = pickNext(0); if (k < 0) { MUS.playing = false; } else startTrack(k, 0.05); } };
+  D.el.onerror = () => { if (MUS.deck === nd) setTimeout(() => { const k = pickNext(0); if (k >= 0 && k !== i) startTrack(k, .3); else MUS.playing = false; }, 400); };
+  const t = AC.currentTime; D.g.gain.cancelScheduledValues(t); D.g.gain.setValueAtTime(0, t); D.g.gain.linearRampToValueAtTime(1, t + Math.max(.05, fade));
+  D.el.play().catch(() => {});
+  if (old && old !== D) { ramp(old.g, 0, fade); const e = old.el; setTimeout(() => { if (A.decks[MUS.deck] !== old) e.pause(); }, fade * 1000 + 150); }
+  MUS.deck = nd; MUS.idx = i; MUS.playing = true; MUS.played.add(item.id);
+}
+function musCmd(m) {
+  initAudio(); resume();
+  const D = MUS.deck >= 0 ? A.decks[MUS.deck] : null;
+  switch (m.a) {
+    case 'queue': {
+      const curId = D && D.item ? D.item.id : null;
+      MUS.queue = m.queue || [];
+      MUS.idx = curId ? MUS.queue.findIndex(x => x.id === curId) : -1;
+      if (MUS.idx < 0 && curId) MUS.idx = Math.min(MUS.queue.length - 1, Math.max(-1, (m.after == null ? MUS.idx : m.after)));
+      break;
+    }
+    case 'opts': Object.assign(MUS.opts, m.opts || {}); break;
+    case 'play': if (m.idx != null) startTrack(m.idx, MUS.playing ? MUS.opts.xf || .3 : .6); else if (D && !MUS.playing) { D.el.play().catch(() => {}); ramp(D.g, 1, .8); MUS.playing = true; } else if (!D) { const k = MUS.opts.shuffle ? pickNext(1) : Math.max(0, MUS.idx); if (MUS.queue.length) startTrack(k < 0 ? 0 : k, .6); } break;
+    case 'pause': if (D && MUS.playing) { MUS.playing = false; ramp(D.g, 0, .8); setTimeout(() => { if (!MUS.playing) D.el.pause(); }, 850); } break;
+    case 'toggle': musCmd({ a: MUS.playing ? 'pause' : 'play' }); break;
+    case 'next': { const k = pickNext(1); if (k >= 0) startTrack(k, Math.min(1.5, MUS.opts.xf || .3)); break; }
+    case 'prev': if (D && D.el.currentTime > 4) D.el.currentTime = 0; else { const k = pickNext(-1); if (k >= 0) startTrack(k, Math.min(1.5, MUS.opts.xf || .3)); } break;
+    case 'stop': if (D) { const sec = m.fade == null ? 2.5 : m.fade; MUS.playing = false; ramp(D.g, 0, sec); setTimeout(() => { if (!MUS.playing) { D.el.pause(); D.el.currentTime = 0; } }, sec * 1000 + 100); } break;
+    case 'seek': if (D && isFinite(D.el.duration)) D.el.currentTime = Math.max(0, Math.min(D.el.duration - .2, m.to)); break;
+  }
+}
+function musTick() {
+  if (!AC) return;
+  // dissolvenza incrociata automatica
+  if (MUS.playing && MUS.deck >= 0) {
+    const D = A.decks[MUS.deck], el = D.el, xf = MUS.opts.xf || 0;
+    if (!D.xf && xf > 0 && isFinite(el.duration) && el.duration > xf * 2 && el.duration - el.currentTime <= xf) {
+      const k = pickNext(0); if (k >= 0) { D.xf = true; startTrack(k, xf); }
+    }
+  }
+  // abbassamento durante i media della slide
+  const duck = MIX.duck.on && anyMediaPlaying();
+  const tg = duck ? dbToG(MIX.duck.db) : 1;
+  if (A._duck !== tg) { A._duck = tg; A.musDuck.gain.setTargetAtTime(tg, AC.currentTime, duck ? .25 : .6); }
+}
+
+/* ------------------------------------------------------------ comandi */
+function goTo(n, how) {
+  if (!view) return;
+  cur.n = n;
+  view.go(n, how).then(() => { cur.step = view.step; });
+  cur.step = view.step;
+  buildMedia(n);
+  if (M.slides[n]) view.preload(n + 1);
+}
+function setCover(c) { const e = $('cover'); e.style.display = c ? 'block' : 'none'; e.style.background = c === 'white' ? '#fff' : '#000'; }
+DP.on('msg', m => {
+  switch (m.t) {
+    case 'go': goTo(m.n, m.how); break;
+    case 'step': if (view) { view.playStep(m.k); cur.step = m.k; } break;
+    case 'show': if (view) { const ch = cur.n !== m.n; view.render(m.n, m.step); cur.n = m.n; cur.step = m.step; if (ch) buildMedia(m.n); } break;
+    case 'media': mediaCmd(m); break;
+    case 'cover': setCover(m.c); break;
+    case 'ptr': { const p = $('ptr'); p.style.display = m.on ? 'block' : 'none'; if (m.on) { p.style.left = (m.x * 100) + '%'; p.style.top = (m.y * 100) + '%'; } break; }
+    case 'mix': MIX = m.mix; initAudio(); applyMix(); break;
+    case 'mus': musCmd(m); break;
+    case 'lock': locked = m.on; $('lock').style.display = locked ? 'block' : 'none'; break;
+    case 'onair': fit(); break;
+    case 'sync': if (view) { view.render(m.n, m.step); if (cur.n !== m.n) { cur.n = m.n; buildMedia(m.n); } cur.step = m.step; } setCover(m.cover); break;
+  }
+});
+['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'wheel', 'keydown', 'dragstart'].forEach(ev => addEventListener(ev, e => { if (locked) { e.preventDefault(); e.stopPropagation(); } else if (ev === 'contextmenu' || ev === 'dragstart') e.preventDefault(); }, true));
+
+/* ------------------------------------------------------------ stato */
+function bands(an) {
+  an.getByteFrequencyData(A.sb);
+  const out = [], nb = 40, f0 = 25, f1 = 18000, hz = AC.sampleRate / an.fftSize;
+  for (let i = 0; i < nb; i++) {
+    const a = f0 * Math.pow(f1 / f0, i / nb), b = f0 * Math.pow(f1 / f0, (i + 1) / nb);
+    let s = 0; for (let k = Math.max(1, Math.floor(a / hz)); k <= Math.max(Math.floor(a / hz) + 1, Math.ceil(b / hz)) && k < A.sb.length; k++) s = Math.max(s, A.sb[k]);
+    out.push(s);
+  }
+  return out;
+}
+let tick = 0;
+setInterval(() => {
+  tick++;
+  if (tick % 3 === 0) musTick();
+  const st = { t: 'st', n: cur.n, step: view ? view.step : 0, busy: view ? view.busy : false, locked, ac: AC ? AC.state : 'none' };
+  st.media = MEDIA.map(o => o.dead ? { dead: true } : { cur: o.el.currentTime, dur: isFinite(o.el.duration) ? o.el.duration : (o.md.dur || 0), paused: o.el.paused, ended: o.el.ended || !!o.endedTrim, started: o.started, stopped: o.stopped, err: o.err || null });
+  if (AC) {
+    const D = MUS.deck >= 0 ? A.decks[MUS.deck] : null;
+    st.mus = { idx: MUS.idx, id: D && D.item ? D.item.id : null, playing: MUS.playing, cur: D ? D.el.currentTime : 0, dur: D && isFinite(D.el.duration) ? D.el.duration : 0 };
+    const pk = x => [peak(x.l, x.b), peak(x.r, x.b)];
+    st.lv = { pres: pk(A.presM), mus: pk(A.musM), mas: pk(A.masM) };
+    if (tick % 2 === 0) st.sp = { p: bands(A.presSp), m: bands(A.musSp) };
+  }
+  send(st);
+}, 50);
+
+/* ------------------------------------------------------------ avvio */
+(async () => {
+  const info = await DP.invoke('deck:info'); if (!info) return;
+  M = info.manifest; BASE = info.base; fit();
+  view = new DeckView($('stage'), M, BASE);
+  initAudio();
+  send({ t: 'hello' });
+})();
+</script>
+</body>
+</html>

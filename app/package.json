@@ -1,0 +1,23 @@
+{
+  "name": "inregia",
+  "productName": "InRegia",
+  "version": "2026.12.0-beta.1",
+  "description": "PowerPoint player for live events: presenter view, projector lock, audio mixer and background music.",
+  "main": "main.js",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node ../tests/e2e.js"
+  },
+  "dependencies": {
+    "pdfjs-dist": "3.11.174",
+    "yauzl": "^3.2.0",
+    "yazl": "^2.5.1"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "playwright-core": "^1.48.0",
+    "resedit": "^2.0.3"
+  }
+}

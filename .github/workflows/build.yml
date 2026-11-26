@@ -1,0 +1,217 @@
+name: Build, test e release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  linux:
+    name: Test su Linux e musica predefinita
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Dipendenze di sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-impress xvfb ffmpeg fonts-crosextra-carlito python3-numpy python3-scipy
+      - name: Dipendenze app
+        working-directory: app
+        run: npm ci
+      - name: Test end-to-end
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" node tests/e2e.js
+      - name: Report test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-linux
+          path: test-output/report.json
+          if-no-files-found: ignore
+      - name: Generazione musica predefinita
+        run: python3 tools/music/generate.py --out dist/music --zip dist/InRegia-music-default.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: music
+          path: dist/InRegia-music-default.zip
+
+  windows:
+    name: Build, installazione e test su Windows
+    needs: linux
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Versione
+        id: ver
+        run: |
+          $v = (Get-Content app/package.json | ConvertFrom-Json).version
+          if ($v -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?$') { throw "Versione non valida: $v" }
+          $tag = "v$($Matches[1]).$($Matches[2])" + $(if ($Matches[4]) { "-$($Matches[4]).$($Matches[5])" } else { ".$($Matches[3])" })
+          $name = "v$($Matches[1]).$($Matches[2])" + $(if ($Matches[4]) { " $($Matches[4]) $($Matches[5])" } else { ".$($Matches[3])" })
+          $file = "$($Matches[1]).$($Matches[2]).$($Matches[3]).$(if ($Matches[5]) { $Matches[5] } else { 0 })"
+          if ($env:GITHUB_REF -like 'refs/tags/*' -and $env:GITHUB_REF_NAME -ne $tag) { throw "Il tag $env:GITHUB_REF_NAME non corrisponde alla versione $v (atteso $tag)" }
+          "version=$v" >> $env:GITHUB_OUTPUT; "tag=$tag" >> $env:GITHUB_OUTPUT; "name=$name" >> $env:GITHUB_OUTPUT; "filever=$file" >> $env:GITHUB_OUTPUT
+          Write-Host "Versione $v, tag $tag, nome '$name', file $file"
+      - name: Dipendenze app
+        working-directory: app
+        run: npm ci
+      - name: Pacchetto app
+        run: node tools/package-app.js
+      - uses: actions/download-artifact@v4
+        with:
+          name: music
+          path: dist
+
+      # Firma tramite SignPath Foundation: attiva quando i segreti sono configurati
+      - name: Carica app da firmare
+        id: up_app
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-unsigned
+          path: dist/InRegia-app-win-x64.zip
+      - name: Firma app (SignPath)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: inregia
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/') && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: app-zip
+          github-artifact-id: ${{ steps.up_app.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed-app
+      - name: Usa app firmata
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        run: Move-Item -Force dist/signed-app/InRegia-app-win-x64.zip dist/InRegia-app-win-x64.zip
+
+      - name: Inno Setup
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          if (-not (Test-Path $iscc)) { throw 'ISCC non trovato' }
+          "ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Compilazione installer
+        run: |
+          $appSha = (Get-FileHash dist/InRegia-app-win-x64.zip -Algorithm SHA256).Hash.ToLower()
+          $musSha = (Get-FileHash dist/InRegia-music-default.zip -Algorithm SHA256).Hash.ToLower()
+          & $env:ISCC "/DAppVersion=${{ steps.ver.outputs.version }}" "/DAppVerName=${{ steps.ver.outputs.name }}" "/DTag=${{ steps.ver.outputs.tag }}" "/DFileVer=${{ steps.ver.outputs.filever }}" "/DAppZipSha=$appSha" "/DMusicZipSha=$musSha" installer/inregia.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC: $LASTEXITCODE" }
+          Get-ChildItem dist
+      - name: Carica installer da firmare
+        id: up_setup
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-unsigned
+          path: dist/InRegia-Setup-${{ steps.ver.outputs.tag }}.exe
+      - name: Firma installer (SignPath)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: inregia
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/') && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: setup-exe
+          github-artifact-id: ${{ steps.up_setup.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed-setup
+      - name: Usa installer firmato
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        run: Move-Item -Force dist/signed-setup/*.exe dist/
+
+      - name: Installazione silenziosa (programma, LibreOffice, musica)
+        run: |
+          $stage = "$env:RUNNER_TEMP\setup"; New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item dist/InRegia-Setup-*.exe, dist/InRegia-app-win-x64.zip, dist/InRegia-music-default.zip $stage
+          $setup = (Get-ChildItem "$stage\InRegia-Setup-*.exe").FullName
+          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS','/COMPONENTS=app,engine,music','/TASKS=desktopicon',"/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
+          Get-Content "$env:RUNNER_TEMP\install.log" -Tail 40
+          if ($p.ExitCode -ne 0) { throw "Installer: codice $($p.ExitCode)" }
+          $app = "$env:ProgramFiles\InRegia"
+          foreach ($f in @("$app\InRegia.exe", "$app\resources\app\main.js", "$env:PUBLIC\Desktop\InRegia.lnk")) { if (-not (Test-Path $f)) { throw "Manca $f" } }
+          $so = Get-ChildItem "$app\engine" -Recurse -Filter soffice.com | Select-Object -First 1
+          if (-not $so) { throw 'LibreOffice non installato' }
+          $mus = (Get-ChildItem "$app\music\default" -Recurse -Filter *.mp3).Count
+          if ($mus -lt 5) { throw "Musica predefinita incompleta: $mus" }
+          Write-Host "Installazione OK: $($so.FullName), $mus brani"
+      - name: Test end-to-end sull'app installata
+        env:
+          INREGIA_EXE: C:\Program Files\InRegia\InRegia.exe
+        run: node tests/e2e.js
+      - name: Report test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-windows
+          path: test-output/report.json
+          if-no-files-found: ignore
+      - name: Disinstallazione silenziosa
+        run: |
+          $u = "$env:ProgramFiles\InRegia\unins000.exe"
+          $p = Start-Process -FilePath $u -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep -Seconds 5
+          if (Test-Path "$env:ProgramFiles\InRegia\InRegia.exe") { throw 'Disinstallazione incompleta' }
+          if (Test-Path "$env:PUBLIC\Desktop\InRegia.lnk") { throw 'Collegamento sul desktop non rimosso' }
+          Write-Host "Disinstallazione OK (codice $($p.ExitCode))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            dist/InRegia-Setup-*.exe
+            dist/InRegia-app-win-x64.zip
+            dist/InRegia-music-default.zip
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      name: ${{ steps.ver.outputs.name }}
+
+  release:
+    name: Pubblicazione release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: dist
+      - name: Checksum
+        working-directory: dist
+        run: sha256sum InRegia-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Crea release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ needs.windows.outputs.tag }}"
+          PRE=""; case "$TAG" in *-*) PRE="--prerelease";; esac
+          gh release create "$TAG" --title "InRegia ${{ needs.windows.outputs.name }}" $PRE --notes-file .github/release-notes.md \
+            dist/InRegia-Setup-*.exe dist/InRegia-app-win-x64.zip dist/InRegia-music-default.zip dist/SHA256SUMS.txt

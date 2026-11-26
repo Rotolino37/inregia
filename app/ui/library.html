@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>InRegia</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="musiclib.css">
+<style>
+  body{display:grid;grid-template-rows:auto auto minmax(0,1fr);height:100%;overflow:hidden}
+  .top{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line)}
+  .top .brand{font-size:21px}
+  .top .brand img{width:32px;height:32px}
+  nav{display:flex;gap:4px;margin-left:12px}
+  nav button{height:36px;padding:0 14px;border:0;border-radius:var(--r-s);background:transparent;color:var(--t2);font-weight:600;font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px}
+  nav button:hover{background:var(--s2);color:var(--t1)}
+  nav button[aria-selected=true]{background:var(--s2);color:var(--t1);box-shadow:inset 0 -2px 0 var(--gold)}
+  .top .sp{flex:1}
+  #banner{display:none;align-items:center;gap:16px;margin:14px 24px 0;padding:14px 16px;border:1px solid var(--warn);border-radius:var(--r-m);background:oklch(0.78 0.15 60 / 0.10)}
+  #banner .txt{flex:1}
+  #banner b{display:block;font-size:16px}
+  #banner .sec{font-size:14px}
+  main{overflow:auto;padding:22px 24px 28px;min-height:0}
+  .view{display:none}
+  .view.on{display:block}
+  .vhead{display:flex;align-items:flex-end;gap:16px;margin-bottom:18px}
+  .vhead h1{font-size:28px}
+  .vhead .sec{margin-top:4px}
+  .vhead .sp{flex:1}
+  /* griglia presentazioni */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+  .deck{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-m);background:var(--s1);overflow:hidden;position:relative}
+  .deck:hover{border-color:var(--line2)}
+  .thumb{aspect-ratio:16/9;background:#000 center/cover no-repeat;position:relative;border-bottom:1px solid var(--line)}
+  .thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t3)}
+  .thumb .ph .ic{width:44px;height:44px}
+  .thumb .pill{position:absolute;left:10px;top:10px;background:oklch(0.17 0.018 262 / 0.9)}
+  .dbody{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px}
+  .dname{font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dmeta{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--t3);font-size:13px}
+  .dwarn{color:var(--warn);font-size:13px}
+  .dact{display:flex;gap:8px;margin-top:6px}
+  .dact .primary{flex:1}
+  .job{position:absolute;inset:0;background:oklch(0.17 0.018 262 / 0.92);display:flex;flex-direction:column;justify-content:center;gap:10px;padding:20px}
+  .job b{font-size:16px}
+  .job .msg{color:var(--t2);font-size:14px;min-height:20px}
+  .bar{height:8px;border-radius:4px;background:var(--s3);overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .3s var(--ease)}
+  .bar.ind i{width:30%!important;animation:ind 1.2s infinite ease-in-out}
+  @keyframes ind{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+  .job.err{justify-content:center}
+  .job.err b{color:oklch(0.8 0.12 25)}
+  .addtile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:250px;color:var(--t2);cursor:pointer;text-align:center;padding:20px}
+  .addtile .ic{width:34px;height:34px;color:var(--gold)}
+  .addtile b{color:var(--t1);font-size:16px}
+  .empty{max-width:720px;margin:6vh auto 0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;padding:48px 32px}
+  .empty .ic.big{width:56px;height:56px;color:var(--gold)}
+  .empty p{margin:0;color:var(--t2);font-size:17px;max-width:56ch;text-wrap:pretty}
+  .empty .row{display:flex;gap:10px;margin-top:6px}
+  /* menu */
+  .menu{position:fixed;z-index:90;min-width:220px;padding:6px;border-radius:var(--r-m);background:var(--s2);border:1px solid var(--line2);box-shadow:var(--shadow-o)}
+  .menu button{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border:0;border-radius:var(--r-s);background:transparent;text-align:left;cursor:pointer;font-size:14px}
+  .menu button:hover,.menu button:focus-visible{background:var(--s3)}
+  .menu button.danger{color:oklch(0.82 0.1 25)}
+  /* musica */
+  .mtools{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  #mview .mlib{max-width:920px}
+  /* impostazioni */
+  .settings{max-width:760px;display:flex;flex-direction:column;gap:2px}
+  .srow{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .srow .l b{display:block;font-size:16px}
+  .srow .l span{color:var(--t3);font-size:14px}
+  .sgroup{margin:22px 0 4px;font-size:18px}
+  /* trascinamento su tutta la finestra */
+  #dropover{position:fixed;inset:10px;border:3px dashed var(--gold);border-radius:14px;background:oklch(0.17 0.018 262 / 0.86);display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:80;pointer-events:none}
+  #dropover .ic{width:48px;height:48px;color:var(--gold)}
+  #dropover b{font-size:22px}
+  #dropover span{color:var(--t2)}
+  #jobbox{position:fixed;inset:0;background:oklch(0.1 0.02 262 / 0.78);display:none;align-items:center;justify-content:center;z-index:95}
+  #jobbox .dlg{width:min(560px,92vw)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="../assets/icon.png" alt=""><span>InRegia</span></div>
+  <nav role="tablist" aria-label="Sezioni">
+    <button role="tab" aria-selected="true" data-v="decks">Presentazioni</button>
+    <button role="tab" aria-selected="false" data-v="music">Musica</button>
+    <button role="tab" aria-selected="false" data-v="settings">Impostazioni</button>
+  </nav>
+  <div class="sp"></div>
+  <button class="btn primary" id="bImport"></button>
+</header>
+<div id="banner" role="region" aria-label="Motore di conversione"></div>
+<main>
+  <section class="view on" id="v-decks"></section>
+  <section class="view" id="v-music">
+    <div class="vhead"><div><h1>Musica di sottofondo</h1><div class="sec">Aggiungi brani per tutte le presentazioni o per una sola. Formati: mp3, m4a, aac, wav, ogg, flac, opus.</div></div></div>
+    <div class="mtools"><label class="sec" for="mDeck">Mostra anche i brani di</label><select class="sel" id="mDeck"></select></div>
+    <div id="mview"></div>
+  </section>
+  <section class="view" id="v-settings"></section>
+</main>
+<div id="dropover"><span class="ic-slot"></span><b id="doTitle">Rilascia per importare</b><span id="doSub">File PowerPoint (.pptx)</span></div>
+<div id="jobbox"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="jbT"><h2 id="jbT"></h2><div class="body"><p id="jbM"></p><div class="bar" id="jbBar"><i></i></div></div></div></div>
+<script src="icons.js"></script>
+<script src="musiclib.js"></script>
+<script src="library.js"></script>
+</body>
+</html>

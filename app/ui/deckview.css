@@ -1,0 +1,9 @@
+.dv-stage{position:relative;overflow:hidden;background:#000;contain:strict}
+.dv-stage.dv-3d{perspective:1800px}
+.dv-slide,.dv-morph{position:absolute;inset:0;transform-style:preserve-3d;backface-visibility:hidden}
+.dv-slide img,.dv-morph img{user-select:none;-webkit-user-drag:none}
+.dv-base,.dv-full{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+.dv-layer{position:absolute;display:block;will-change:transform,opacity}
+.dv-mbox{position:absolute}
+.dv-mbox img{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+.dv-cover{position:absolute;inset:0;z-index:5;pointer-events:none}

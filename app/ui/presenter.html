@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>InRegia</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="deckview.css">
+<link rel="stylesheet" href="musiclib.css">
+<link rel="stylesheet" href="presenter.css">
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <div class="brand"><img src="../assets/icon.png" alt=""><span class="dname" id="deckName"></span></div>
+    <div class="sp"></div>
+    <div class="grp proj" aria-label="Proiettore">
+      <span class="pill" id="projState">Proiettore spento</span>
+      <select class="sel" id="selDisp" aria-label="Schermo del proiettore"></select>
+      <button class="btn sm" id="bProj"></button>
+      <button class="btn sm icon" id="bFs" title="Porta il proiettore a schermo intero" style="display:none"></button>
+      <button class="btn sm" id="bLock" aria-pressed="false"></button>
+    </div>
+    <div class="grp" aria-label="Schermo del pubblico">
+      <button class="btn sm icon" id="bBlack" title="Schermo nero (B)" aria-pressed="false"></button>
+      <button class="btn sm icon" id="bWhite" title="Schermo bianco (W)" aria-pressed="false"></button>
+      <button class="btn sm icon" id="bPtr" title="Puntatore laser (Z)" aria-pressed="false"></button>
+    </div>
+    <div class="grp clock">
+      <div class="clk"><span class="lab">Ora</span><span class="val num" id="wall">--:--</span></div>
+      <div class="clk"><span class="lab">Durata</span><span class="val num" id="tmr">00:00</span></div>
+      <button class="btn xs icon quiet" id="bTmr" title="Avvia o metti in pausa il cronometro"></button>
+      <button class="btn xs icon quiet" id="bTmr0" title="Azzera il cronometro"></button>
+    </div>
+    <div class="grp plain">
+      <button class="btn sm icon quiet" id="bHelp" title="Scorciatoie da tastiera (F1)"></button>
+      <button class="btn sm icon quiet" id="bList" title="Torna alla libreria"></button>
+      <button class="btn sm icon quiet" id="bQuit" title="Chiudi InRegia"></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel curp" aria-label="Slide corrente">
+      <div class="ph">
+        <h2><span id="cnt" class="num">Slide 1 di 1</span></h2>
+        <span class="pill gold" id="stepInfo" hidden></span>
+        <span class="pill media" id="mediaInfo" hidden></span>
+        <span class="sp"></span>
+        <span class="pill live" id="coverInfo" hidden></span>
+      </div>
+      <div class="stagebox" id="curBox"><div id="curStage" class="pstage"></div><div class="ptrdot" id="ptrLocal"></div></div>
+      <div class="transport">
+        <button class="btn lg icon" id="bFirst" title="Torna all'inizio (Home)"></button>
+        <button class="btn lg" id="bPrev"></button>
+        <button class="btn lg primary" id="bNext"></button>
+        <div class="vsep"></div>
+        <div class="mediactl" id="mediaCtl">
+          <select class="sel" id="selMedia" hidden aria-label="Media della slide"></select>
+          <button class="btn icon media" id="mPlay" title="Avvia o metti in pausa (P)"></button>
+          <button class="btn icon" id="mStop" title="Stop e torna all'inizio (S)"></button>
+          <button class="btn icon" id="mBack" title="Indietro di 10 secondi (J)"></button>
+          <input type="range" class="hr" id="mSeek" min="0" max="1000" value="0" aria-label="Posizione del video">
+          <button class="btn icon" id="mFwd" title="Avanti di 10 secondi (L)"></button>
+          <span class="mtime num" id="mTime">--:-- / --:--</span>
+        </div>
+        <div class="nomedia" id="noMedia">Nessun video o audio in questa slide</div>
+      </div>
+    </section>
+
+    <section class="side">
+      <div class="panel nxt">
+        <div class="ph"><h2 id="nxtLbl">Prossima</h2><span class="sp"></span><span class="pill plain" id="nxtInfo" hidden></span></div>
+        <div class="stagebox small" id="nxtBox"><div id="nxtStage" class="pstage"></div><div class="endmsg" id="endMsg">Fine della presentazione</div></div>
+      </div>
+      <div class="panel tabs">
+        <div class="tabbar" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" data-tab="audio"></button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="music"></button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="notes"></button>
+        </div>
+        <div class="tabbody" id="tab-audio" role="tabpanel">
+          <div class="mixer">
+            <div class="strips" id="strips"></div>
+            <div class="eqwrap">
+              <div class="eqhead">
+                <div class="seg" id="eqSeg" role="radiogroup" aria-label="Equalizzatore"><button role="radio" aria-checked="true" data-eq="eqP">Presentazione</button><button role="radio" aria-checked="false" data-eq="eqM">Musica</button></div>
+                <label class="switch" title="Equalizzatore attivo"><input type="checkbox" id="eqOn"><i></i></label>
+              </div>
+              <div class="eqrow2"><label class="muted" for="eqPreset">Stile</label><select class="sel" id="eqPreset"></select><button class="btn xs" id="eqReset">Azzera</button></div>
+              <div class="eqgraph" id="eqGraph"><canvas id="eqCv"></canvas><div class="eqsl" id="eqSl"></div></div>
+              <div class="eqlab" id="eqLab"></div>
+            </div>
+          </div>
+          <div class="duck">
+            <label class="switch"><input type="checkbox" id="duckOn"><i></i><span>Abbassa la musica durante video e audio delle slide</span></label>
+            <select class="sel" id="duckDb" aria-label="Quanto abbassare"><option value="-6">di 6 dB</option><option value="-12">di 12 dB</option><option value="-18">di 18 dB</option><option value="-24">di 24 dB</option><option value="-60">fino al silenzio</option></select>
+          </div>
+        </div>
+        <div class="tabbody" id="tab-music" role="tabpanel" hidden>
+          <div class="np">
+            <div class="npt"><div class="npname" id="npName">Nessun brano</div><div class="num muted" id="npTime">00:00 / 00:00</div></div>
+            <div class="npbar" id="npBar" role="slider" aria-label="Posizione del brano" tabindex="0"><i id="npProg"></i></div>
+            <div class="npctl">
+              <button class="btn icon" id="muPrev" title="Brano precedente"></button>
+              <button class="btn icon primary" id="muPlay" title="Avvia o metti in pausa la musica (M)"></button>
+              <button class="btn icon" id="muNext" title="Brano successivo (N)"></button>
+              <button class="btn sm" id="muStop" title="Abbassa gradualmente e ferma"></button>
+              <span class="sp"></span>
+              <button class="btn sm icon" id="muShuf" title="Ordine casuale" aria-pressed="false"></button>
+              <button class="btn sm" id="muRep" title="Ripetizione"></button>
+            </div>
+            <div class="xfrow"><label for="muXf">Dissolvenza tra brani</label><input type="range" class="hr" id="muXf" min="0" max="15" step="0.5"><span class="num" id="muXfV">4,0 s</span></div>
+          </div>
+          <div class="seg wide" id="muSeg" role="radiogroup" aria-label="Vista"><button role="radio" aria-checked="true" data-mv="queue">Coda</button><button role="radio" aria-checked="false" data-mv="lib">Brani</button></div>
+          <div id="mv-queue">
+            <div class="qhead"><span class="num muted" id="qCount"></span><span class="sp"></span><button class="btn xs" id="qAz">Ordina A-Z</button><button class="btn xs" id="qMix">Mescola</button></div>
+            <div class="queue" id="queue"></div>
+          </div>
+          <div id="mv-lib" hidden></div>
+        </div>
+        <div class="tabbody" id="tab-notes" role="tabpanel" hidden>
+          <div class="notesbar"><span class="muted">Note del relatore</span><span class="sp"></span><button class="btn xs icon" id="nMinus" title="Testo più piccolo"></button><button class="btn xs icon" id="nPlus" title="Testo più grande"></button></div>
+          <div class="notes" id="notes"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="strip" class="panel" aria-label="Tutte le slide"></div>
+</div>
+<div class="goto num" id="goto" aria-live="assertive"></div>
+
+<script src="icons.js"></script>
+<script src="presets.js"></script>
+<script src="deckview.js"></script>
+<script src="musiclib.js"></script>
+<script src="presenter.js"></script>
+</body>
+</html>

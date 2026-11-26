@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body>
+<script>
+const { ipcRenderer } = require('electron');
+const path = require('path'), url = require('url');
+const HERE = path.dirname(url.fileURLToPath(location.href));
+const fail = e => ipcRenderer.send('imp:msg', { t: 'error', error: String(e && e.message || e) });
+window.onerror = (m, s, l, c, e) => fail(e || m);
+window.onunhandledrejection = ev => fail(ev.reason);
+</script>
+<script src="../node_modules/pdfjs-dist/build/pdf.min.js"></script>
+<script>
+try {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = url.pathToFileURL(path.join(HERE, '..', 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.js')).href;
+  const job = JSON.parse(new URLSearchParams(location.search).get('job'));
+  const { importDeck } = require(path.join(HERE, '..', 'importer.js'));
+  let last = 0;
+  importDeck(Object.assign(job, { onProgress: (p, m) => { const now = Date.now(); if (now - last > 120 || p >= 100) { last = now; ipcRenderer.send('imp:msg', { t: 'progress', p, m }); } } }))
+    .then(mf => ipcRenderer.send('imp:msg', { t: 'done', slides: mf.slides.length, warnings: mf.warnings }))
+    .catch(fail);
+} catch (e) { fail(e); }
+</script></body></html>
