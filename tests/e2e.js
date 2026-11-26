@@ -24,7 +24,7 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'inregia-e2e-'));
   const data = path.join(tmp, 'data');
-  // Feed di aggiornamento finto: una stabile vecchia, una stabile nuova, una beta più nuova.
+  // Feed di aggiornamento finto: una stabile vecchia, una stabile nuova, una beta più nuova (canale predefinito: stabile).
   const feed = path.join(tmp, 'feed.json');
   const rel = (tag, pre) => ({ tag, name: 'InRegia ' + tag, prerelease: pre, notes: '## Novità\n- Prova ' + tag, assets: [{ name: 'InRegia-Setup-' + tag + '.exe', url: 'https://example.invalid/s.exe' }] });
   fs.writeFileSync(feed, JSON.stringify([rel('v2026.11', false), rel('v2099.0', false), rel('v2099.1-beta.1', true), rel('v2099.1-beta.0', true)]));
@@ -60,13 +60,15 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     check('consenso chiesto prima di controllare gli aggiornamenti', ask, ask);
     if (ask) await lib.click('.dlg-bg.upd [data-a=yes]');
     const popup = await until(() => lib.evaluate(() => { const d = document.querySelector('.dlg-bg.upd'); const b = d && d.querySelector('.urow b'); return b && b.textContent; }), 12000);
-    check('avviso nuova versione all\'avvio (canale beta)', popup === 'InRegia v2099.1-beta.1', popup);
+    check('avviso nuova versione all\'avvio (canale stabile)', popup === 'InRegia v2099.0', popup);
     await shot(lib, '01b-library-update');
     await lib.click('.dlg-bg.upd [data-a=later]');
+    await lib.evaluate(() => DP.invoke('settings:set', { updateChannel: 'beta' }));
+    const ub = await lib.evaluate(() => DP.invoke('update:check'));
+    check('canale beta propone anche le beta', ub.app.available && ub.app.latest.tag === 'v2099.1-beta.1', ub.app.latest && ub.app.latest.tag);
     await lib.evaluate(() => DP.invoke('settings:set', { updateChannel: 'stable' }));
     const us = await lib.evaluate(() => DP.invoke('update:check'));
     check('canale stabile ignora le beta', us.app.available && us.app.latest.tag === 'v2099.0', us.app.latest && us.app.latest.tag);
-    await lib.evaluate(() => DP.invoke('settings:set', { updateChannel: 'beta' }));
     check('versione LibreOffice letta', !!us.engine.latest && (us.engine.status.kind !== 'bundled' || !!us.engine.installed), { kind: us.engine.status.kind, installed: us.engine.installed, latest: us.engine.latest, available: us.engine.available });
     R.engine = us.engine;
     /* ---------------- importazione (stesso percorso del trascinamento) */

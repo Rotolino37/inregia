@@ -86,7 +86,7 @@ Checked on every build with a dedicated test deck (`tests/fixtures/effects.pptx`
 
 Video and audio never start on their own: they are controlled from the presenter.
 
-Presentations imported with beta 1 still work; use **Update** on the library card to get the new animation engine.
+Presentations imported with an earlier version still work; use **Update** on the library card to get the new animation engine.
 
 
 ## Code signing policy

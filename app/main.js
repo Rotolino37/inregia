@@ -39,16 +39,16 @@ const MUSIC_GENRES = [
   { slug: 'pianoforte', name: 'Pianoforte', mb: 38 }, { slug: 'acustico', name: 'Acustico', mb: 36 }, { slug: 'corporate', name: 'Corporate', mb: 40 },
   { slug: 'cinematico', name: 'Cinematico', mb: 36 },
 ];
-// "2026.12.0-beta.2" -> "v2026.12-beta.2", "2026.12.1" -> "v2026.12.1" (come nel workflow di build)
-const releaseTag = v => { const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?/); return m ? (m[4] ? `v${m[1]}.${m[2]}-${m[4]}.${m[5]}` : `v${m[1]}.${m[2]}.${m[3]}`) : null; };
+// "2026.12.0" -> "v2026.12", "2026.12.1" -> "v2026.12.1", "2026.12.0-beta.3" -> "v2026.12-beta.3" (come nel workflow di build)
+const releaseTag = v => { const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?/); if (!m) return null; const b = `v${m[1]}.${m[2]}` + (m[3] !== '0' ? '.' + m[3] : ''); return m[4] ? `${b}-${m[4]}.${m[5]}` : b; };
 const RESERVED = new Set(['global', 'default']);
 
 for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true }); } catch (e) {}
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); } catch (e) {} };
-let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'beta', autoUpdateCheck: null, skipVersion: null, renderEngine: 'auto' }, readJson(SETTINGS_FILE, {}));
-delete SETTINGS.autoProjector; // dalla beta 2 il proiettore si apre solo su richiesta
+let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'stable', autoUpdateCheck: null, skipVersion: null, renderEngine: 'auto' }, readJson(SETTINGS_FILE, {}));
+delete SETTINGS.autoProjector; // il proiettore si apre solo su richiesta
 const saveSettings = () => writeJson(SETTINGS_FILE, SETTINGS);
 
 /* ---------------------------------------------------------------- Chromium

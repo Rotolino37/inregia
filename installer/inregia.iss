@@ -3,20 +3,20 @@
 ; Installazione offline: metti accanto al setup InRegia-app-win-x64.zip, i pacchetti InRegia-music-<genere>.zip
 ; e un file LibreOffice_*_Win_x86-64.msi; verranno usati senza scaricare nulla.
 ;
-; Compilazione:  ISCC.exe /DAppVersion=2026.12.0-beta.3 /DAppVerName="v2026.12 beta 3" /DTag=v2026.12-beta.3
-;                /DFileVer=2026.12.0.3 /DAppZipSha=<sha256> /DMusicSha_lofi=<sha256> ... installer\inregia.iss
+; Compilazione:  ISCC.exe /DAppVersion=2026.12.0 /DAppVerName="v2026.12" /DTag=v2026.12
+;                /DFileVer=2026.12.0.1000 /DAppZipSha=<sha256> /DMusicSha_lofi=<sha256> ... installer\inregia.iss
 
 #ifndef AppVersion
-  #define AppVersion "2026.12.0-beta.3"
+  #define AppVersion "2026.12.0"
 #endif
 #ifndef AppVerName
-  #define AppVerName "v2026.12 beta 3"
+  #define AppVerName "v2026.12"
 #endif
 #ifndef Tag
-  #define Tag "v2026.12-beta.3"
+  #define Tag "v2026.12"
 #endif
 #ifndef FileVer
-  #define FileVer "2026.12.0.3"
+  #define FileVer "2026.12.0.1000"
 #endif
 #ifndef AppZipSha
   #define AppZipSha ""

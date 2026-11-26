@@ -18,7 +18,7 @@ const yauzl = req('yauzl'), yazl = req('yazl'), RE = req('resedit'), PE = req('p
 
 const pkg = JSON.parse(fs.readFileSync(path.join(APP, 'package.json'), 'utf8'));
 const EV = pkg.devDependencies.electron.replace(/^[^\d]*/, '');
-const VERSION = pkg.version;                         // 2026.12.0-beta.1
+const VERSION = pkg.version;                         // es. 2026.12.0
 const m = /^(\d+)\.(\d+)\.(\d+)(?:-[a-z]+\.(\d+))?/.exec(VERSION);
 const FILEVER = [+m[1], +m[2], +m[3], +(m[4] || 0)];
 
