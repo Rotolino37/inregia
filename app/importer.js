@@ -24,7 +24,7 @@ const NS = {
   p14: 'http://schemas.microsoft.com/office/powerpoint/2010/main',
 };
 const SHAPES = new Set(['sp', 'pic', 'grpSp', 'graphicFrame', 'cxnSp', 'contentPart', 'AlternateContent']);
-const MANIFEST_VERSION = 3;
+const MANIFEST_VERSION = 4;
 
 /* ---------------------------------------------------------------- zip */
 function openZip(file) {
@@ -159,8 +159,20 @@ function parseTransition(sld) {
   switch (t) {
     case 'morph': o = { type: 'morph' }; break;
     case 'fade': o = { type: A('thruBlk') === '1' || A('thruBlk') === 'true' ? 'fadeBlack' : 'fade' }; break;
-    case 'dissolve': case 'checker': case 'randomBar': case 'blinds': case 'strips': case 'ripple': case 'glitter': case 'honeycomb': case 'shred': case 'vortex': case 'warp': case 'prism': case 'random': case 'newsflash':
+    case 'dissolve': case 'ripple': case 'glitter': case 'honeycomb': case 'shred': case 'vortex': case 'warp': case 'prism': case 'random': case 'newsflash':
       o = { type: 'fade' }; break;
+    case 'blinds': case 'checker': case 'randomBar': o = { type: t, orient: A('dir') === 'vert' ? 'v' : 'h' }; break;
+    case 'strips': o = { type: 'strips', dir: { lu: 'lu', ru: 'ru', ld: 'ld', rd: 'rd' }[A('dir')] || 'rd' }; break;
+    case 'wheel': case 'wheelReverse': o = { type: 'wheel', spokes: num(A('spokes'), 4) }; break;
+    case 'wedge': o = { type: 'wedge' }; break;
+    case 'diamond': o = { type: 'diamond' }; break;
+    case 'plus': o = { type: 'plus' }; break;
+    case 'prstTrans': { // transizioni dinamiche di PowerPoint 2013+
+      const pr = A('prst') || '';
+      o = /curtains/.test(pr) ? { type: 'split', orient: 'v', inOut: 'in' } : /wind/.test(pr) ? { type: 'push', dir: A('invX') === '1' ? 'r' : 'l' }
+        : /fallOver|drape/.test(pr) ? { type: 'flip', dir: 'l' } : /airplane|origami|crush|fracture|peelOff|pageCurl|prestige/.test(pr) ? { type: 'zoom', inOut: 'out' } : { type: 'fade' };
+      break;
+    }
     case 'push': o = { type: 'push', dir: dir || 'l' }; break;
     case 'pull': o = { type: 'uncover', dir: dir || 'l' }; break;
     case 'cover': o = { type: 'cover', dir: dir || 'l' }; break;
@@ -170,7 +182,7 @@ function parseTransition(sld) {
     case 'split': o = { type: 'split', orient: A('orient') === 'vert' ? 'v' : 'h', inOut: A('dir') === 'in' ? 'in' : 'out' }; break;
     case 'doors': case 'window': o = { type: 'split', orient: A('dir') === 'horz' ? 'h' : 'v', inOut: 'out' }; break;
     case 'zoom': case 'flythrough': case 'ferris': o = { type: 'zoom', inOut: A('dir') === 'out' ? 'out' : 'in' }; break;
-    case 'circle': case 'diamond': case 'plus': case 'wheel': case 'wheelReverse': case 'wedge': o = { type: 'circle' }; break;
+    case 'circle': o = { type: 'circle' }; break;
     case 'flash': o = { type: 'flash' }; break;
     case 'cube': case 'box': o = { type: 'cube', dir: dir || 'l' }; break;
     case 'flip': case 'switch': o = { type: 'flip', dir: dir || 'l' }; break;
@@ -188,7 +200,122 @@ function subtypeDir(st) { // 1 alto, 2 destra, 4 basso, 8 sinistra
   st = parseInt(st, 10) || 0;
   if (st & 8) return 'l'; if (st & 2) return 'r'; if (st & 1) return 'u'; if (st & 4) return 'd'; return 'd';
 }
-function parseTiming(sld) {
+/* ------------------------------------------------- animazioni: comportamenti
+   Ogni effetto viene tradotto nei suoi comportamenti elementari (posizione, scala, rotazione, opacità,
+   filtro di ingresso/uscita, percorso), con le formule di PowerPoint già calcolate in % della slide. */
+const FMLA_FN = /\b(sin|cos|tan|abs|sqrt|min|max|atan|floor|ceil|round|pi)\b/g;
+function fmla(expr, V) {
+  let s = String(expr == null ? '' : expr).trim(); if (!s) return NaN;
+  if (/^[+-]?\d*\.?\d+(e[+-]?\d+)?$/i.test(s)) return parseFloat(s);
+  s = s.replace(/#ppt_([xywh])/g, (m, k) => '(' + V[k] + ')').replace(/\^/g, '**');
+  const chk = s.replace(FMLA_FN, '');
+  if (/[^0-9.+\-*/()\s,eE]/.test(chk)) return NaN; // variabile del tempo ($) o sintassi sconosciuta
+  try { const v = Function('"use strict";const {sin,cos,tan,abs,sqrt,min,max,atan,floor,ceil,round}=Math,pi=Math.PI;return (' + s + ');')(); return isFinite(v) ? v : NaN; }
+  catch (e) { return NaN; }
+}
+function tavVal(tav) {
+  const v = kid(tav, 'val'); if (!v) return null;
+  const x = v.firstElementChild; return x ? x.getAttribute('val') : null;
+}
+// percorso di movimento: M L C Z E, coordinate relative alla slide -> punti in %
+function motionPath(d) {
+  const tok = String(d || '').replace(/([MLCZEmlcze])/g, ' $1 ').trim().split(/[\s,]+/).filter(Boolean);
+  const pts = []; let i = 0, cx = 0, cy = 0, sx = 0, sy = 0, cmd = 'M';
+  const n = () => parseFloat(tok[i++]);
+  while (i < tok.length) {
+    if (/^[A-Za-z]$/.test(tok[i])) cmd = tok[i++].toUpperCase();
+    if (cmd === 'E') break;
+    if (cmd === 'Z') { pts.push([sx, sy]); cx = sx; cy = sy; cmd = 'L'; continue; }
+    if (cmd === 'M') { cx = n(); cy = n(); sx = cx; sy = cy; if (!pts.length) pts.push([cx, cy]); cmd = 'L'; }
+    else if (cmd === 'L') { cx = n(); cy = n(); pts.push([cx, cy]); }
+    else if (cmd === 'C') {
+      const x1 = n(), y1 = n(), x2 = n(), y2 = n(), x = n(), y = n();
+      for (let k = 1; k <= 10; k++) { const t = k / 10, u = 1 - t; pts.push([u * u * u * cx + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x, u * u * u * cy + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y]); }
+      cx = x; cy = y;
+    } else i++;
+    if (pts.length > 400) break;
+  }
+  if (pts.some(p => !isFinite(p[0]) || !isFinite(p[1]))) return null;
+  return pts.map(([x, y]) => [Math.round(x * 1e4) / 100, Math.round(y * 1e4) / 100]);
+}
+function timeOf(ctn) {
+  const st = ctn && kid(ctn, 'stCondLst'), c = st && kid(st, 'cond');
+  const dur = ctn ? ctn.getAttribute('dur') : null;
+  return {
+    t: c ? Math.max(0, num(c.getAttribute('delay'), 0)) : 0,
+    d: dur === 'indefinite' ? 0 : Math.max(1, num(dur, 1)),
+    ar: ctn && (ctn.getAttribute('autoRev') === '1' || ctn.getAttribute('autoRev') === 'true'),
+    rc: ctn && ctn.getAttribute('repeatCount') ? (ctn.getAttribute('repeatCount') === 'indefinite' ? 3 : Math.min(10, num(ctn.getAttribute('repeatCount'), 1000) / 1000)) : 1,
+    acc: ctn ? num(ctn.getAttribute('accel'), 0) / 100000 : 0, dec: ctn ? num(ctn.getAttribute('decel'), 0) / 100000 : 0,
+  };
+}
+function behaviors(effCtn, V) {
+  const out = [], outer = timeOf(effCtn);
+  const BH = new Set(['set', 'anim', 'animEffect', 'animScale', 'animRot', 'animMotion', 'animClr']);
+  const walk = el => {
+    for (const b of Array.from(el.children)) {
+      if (!BH.has(b.localName)) { if (b.localName !== 'cBhvr' && b.namespaceURI === NS.p) walk(b); continue; }
+      const cb = kid(b, 'cBhvr'), ctn = cb && kid(cb, 'cTn'), tm = timeOf(ctn);
+      if (!tm.acc && !tm.dec) { tm.acc = outer.acc; tm.dec = outer.dec; }
+      const names = desc(cb, 'p', 'attrName').map(a => a.textContent.trim());
+      const base = { t: tm.t, d: tm.d, ar: tm.ar, rc: tm.rc, acc: tm.acc, dec: tm.dec };
+      const tavs = () => { const l = desc1(b, 'p', 'tavLst'); return l ? kids(l, 'tav').map(t => [num(t.getAttribute('tm'), 0) / 100000, tavVal(t)]) : []; };
+      switch (b.localName) {
+        case 'set': {
+          const to = kid(b, 'to'), v = to && to.firstElementChild && to.firstElementChild.getAttribute('val');
+          if (names.includes('style.visibility')) out.push(Object.assign({ p: 'vis', v: v !== 'hidden' }, base));
+          else if (names.includes('style.opacity') && isFinite(parseFloat(v))) out.push(Object.assign({ p: 'opTo', v: parseFloat(v) }, base));
+          break;
+        }
+        case 'anim': {
+          // le formule (#ppt_x, #ppt_w...) si calcolano nel renderer con il riquadro reale dell'oggetto
+          const L = tavs(); const nm = names[0] || '';
+          const map = { ppt_x: 'x', ppt_y: 'y', ppt_w: 'sx', ppt_h: 'sy', 'style.rotation': 'rot', r: 'rot', 'style.opacity': 'op' };
+          const m = map[nm];
+          if (m && L.length >= 2) {
+            const pts = L.filter(([, v]) => v != null && !/\$/.test(v)).map(([t, v]) => [Math.round(t * 1e4) / 1e4, String(v).trim()]);
+            if (pts.length >= 2) out.push(Object.assign({ p: m, f: pts }, base));
+          } else if (m && b.getAttribute('by')) {
+            const by = fmla(b.getAttribute('by'), V); if (isFinite(by) && m[0] === 'rot') out.push(Object.assign({ p: 'rotBy', v: by }, base));
+          }
+          break;
+        }
+        case 'animEffect': {
+          const f = (b.getAttribute('filter') || '').trim(), tr = b.getAttribute('transition') || 'in', pr = b.getAttribute('prLst') || '';
+          const op = /opacity\s*:\s*([\d.]+)/.exec(pr);
+          if (op) out.push(Object.assign({ p: 'opTo', v: parseFloat(op[1]) }, base));
+          else if (f && f !== 'image') out.push(Object.assign({ p: 'filter', f, io: tr === 'out' ? 'out' : 'in' }, base));
+          break;
+        }
+        case 'animScale': {
+          const by = kid(b, 'by'), to = kid(b, 'to'), fr = kid(b, 'from');
+          if (by) out.push(Object.assign({ p: 'scaleBy', x: num(by.getAttribute('x'), 100000) / 100000, y: num(by.getAttribute('y'), 100000) / 100000 }, base));
+          else if (to) out.push(Object.assign({ p: 'scaleTo', x: num(to.getAttribute('x'), 100000) / 100000, y: num(to.getAttribute('y'), 100000) / 100000,
+            fx: fr ? num(fr.getAttribute('x'), 100000) / 100000 : null, fy: fr ? num(fr.getAttribute('y'), 100000) / 100000 : null }, base));
+          break;
+        }
+        case 'animRot': {
+          const by = b.getAttribute('by');
+          if (by != null) out.push(Object.assign({ p: 'rotBy', v: num(by, 0) / 60000 }, base));
+          else if (b.getAttribute('to') != null) out.push(Object.assign({ p: 'rotTo', v: num(b.getAttribute('to'), 0) / 60000, from: b.getAttribute('from') != null ? num(b.getAttribute('from'), 0) / 60000 : null }, base));
+          break;
+        }
+        case 'animMotion': {
+          const pts = motionPath(b.getAttribute('path'));
+          if (pts && pts.length > 1) out.push(Object.assign({ p: 'path', pts: pts.map(([x, y]) => [x - pts[0][0], y - pts[0][1]]) }, base));
+          break;
+        }
+        case 'animClr': out.push(Object.assign({ p: 'clr' }, base)); break;
+      }
+    }
+  };
+  const kidsL = effCtn ? kid(effCtn, 'childTnLst') : null;
+  if (kidsL) walk(kidsL);
+  return out;
+}
+const bhEnd = b => b.t + (b.d || 0) * (b.ar ? 2 : 1) * (b.rc || 1);
+
+function parseTiming(sld, rectOf) {
   const res = { effects: [], mediaHide: new Set(), media: {} };
   const timing = kid(sld, 'timing'); if (!timing) return res;
   // media: opzioni di riproduzione
@@ -207,27 +334,36 @@ function parseTiming(sld) {
   let main = null;
   for (const c of desc(timing, 'p', 'cTn')) if (c.getAttribute('nodeType') === 'mainSeq') { main = c; break; }
   if (!main) return res;
+  // forme animate per intero: i paragrafi di queste forme seguono la forma
+  const whole = new Set();
+  for (const tg of desc(main, 'p', 'spTgt')) if (!kid(tg, 'txEl')) whole.add(tg.getAttribute('spid'));
   for (const c of desc(main, 'p', 'cTn')) {
     const cls = c.getAttribute('presetClass'); if (!cls) continue;
     if (cls === 'mediacall' || cls === 'verb') continue;
     const tg = desc1(c, 'p', 'spTgt'); if (!tg) continue;
-    let dur = 0;
-    for (const d of desc(c, 'p', 'cTn')) { const v = num(d.getAttribute('dur'), NaN); if (isFinite(v)) dur = Math.max(dur, v + num(desc1(d, 'p', 'cond') && desc1(d, 'p', 'cond').getAttribute('delay'), 0)); }
+    const spid = tg.getAttribute('spid');
+    const tx = kid(tg, 'txEl'), pr = tx && kid(tx, 'pRg');
+    const para = pr && !whole.has(spid) ? num(pr.getAttribute('st'), 0) : null;
+    const id = para == null ? spid : spid + '#' + para;
+    const r = rectOf(spid) || { x: 0, y: 0, w: 0, h: 0 };
+    const V = { x: (r.x + r.w / 2) / 100, y: (r.y + r.h / 2) / 100, w: r.w / 100, h: r.h / 100 };
+    const beh = behaviors(c, V);
+    let dur = 0; for (const b of beh) dur = Math.max(dur, bhEnd(b));
+    if (!beh.length) for (const d of desc(c, 'p', 'cTn')) { const v = num(d.getAttribute('dur'), NaN); if (isFinite(v)) dur = Math.max(dur, v); }
     const st = kid(c, 'stCondLst'), cond = st && kid(st, 'cond');
     const delay = cond ? num(cond.getAttribute('delay'), 0) : 0;
     const pid = parseInt(c.getAttribute('presetID'), 10) || 10;
     let fx = cls === 'entr' || cls === 'exit' ? (ENTR_MAP[pid] || 'fade') : 'pulse';
-    if (cls === 'path') fx = 'pulse';
     res.effects.push({
-      id: tg.getAttribute('spid'), cls: cls === 'entr' || cls === 'exit' ? cls : 'emph', fx,
+      id, spid, para, cls: cls === 'entr' || cls === 'exit' ? cls : (cls === 'path' ? 'path' : 'emph'), fx, pid,
       dir: subtypeDir(c.getAttribute('presetSubtype')), node: c.getAttribute('nodeType') || 'clickEffect',
-      dur: Math.max(dur || 500, 1), delay: Math.max(0, delay),
+      dur: Math.max(dur || 500, 1), delay: Math.max(0, delay), beh: beh.filter(b => b.p !== 'vis'),
     });
   }
   return res;
 }
 function buildSteps(effects, mediaIds) {
-  const eff = effects.filter(e => !mediaIds.has(e.id));
+  const eff = effects.filter(e => !mediaIds.has(e.spid || e.id));
   const steps = [[]]; let cur = steps[0], lastStart = 0, maxEnd = 0, first = true;
   for (const e of eff) {
     let start;
@@ -235,7 +371,7 @@ function buildSteps(effects, mediaIds) {
     else if (e.node === 'withEffect') start = first ? 0 : lastStart;
     else start = maxEnd; // afterEffect
     start += e.delay;
-    cur.push({ id: e.id, cls: e.cls, fx: e.fx, dir: e.dir, t: Math.round(start), dur: Math.round(e.dur) });
+    cur.push(Object.assign({ id: e.id, cls: e.cls, fx: e.fx, dir: e.dir, t: Math.round(start), dur: Math.round(e.dur) }, e.beh && e.beh.length ? { beh: e.beh } : {}));
     lastStart = start; maxEnd = Math.max(maxEnd, start + e.dur); first = false;
   }
   const initial = {};
@@ -267,6 +403,40 @@ function keepOnly(doc, id) {
   };
   prune(spTree);
   return true;
+}
+/* Paragrafi animati singolarmente: il testo nascosto resta al suo posto (riempimento assente), così l'impaginazione non cambia. */
+const RUN_FILLS = new Set(['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill', 'ln', 'effectLst', 'effectDag', 'highlight']);
+const BU_TYPES = new Set(['buNone', 'buAutoNum', 'buChar', 'buBlip']);
+function paragraphsOf(doc, id) {
+  const sh = findShape(doc, id); if (!sh) return [];
+  const tb = desc1(sh, 'p', 'txBody') || desc1(sh, 'a', 'txBody'); if (!tb) return [];
+  return kids(tb, 'p');
+}
+function hideRun(doc, r) {
+  let rPr = kid(r, 'rPr');
+  if (!rPr) { rPr = doc.createElementNS(NS.a, 'a:rPr'); r.insertBefore(rPr, r.firstChild); }
+  for (const c of Array.from(rPr.children)) if (RUN_FILLS.has(c.localName)) rPr.removeChild(c);
+  rPr.insertBefore(doc.createElementNS(NS.a, 'a:noFill'), rPr.firstChild);
+}
+function hideParagraph(doc, p) {
+  for (const r of Array.from(p.children)) if (r.localName === 'r' || r.localName === 'fld') hideRun(doc, r);
+  let pPr = kid(p, 'pPr');
+  if (!pPr) { pPr = doc.createElementNS(NS.a, 'a:pPr'); p.insertBefore(pPr, p.firstChild); }
+  for (const c of Array.from(pPr.children)) if (BU_TYPES.has(c.localName)) pPr.removeChild(c);
+  const after = Array.from(pPr.children).find(c => c.localName === 'tabLst' || c.localName === 'defRPr' || c.localName === 'extLst');
+  pPr.insertBefore(doc.createElementNS(NS.a, 'a:buNone'), after || null);
+}
+function hideParas(doc, id, idxs) { const P = paragraphsOf(doc, id); for (const i of idxs) if (P[i]) hideParagraph(doc, P[i]); }
+function paraOnly(doc, id, idx) {
+  paragraphsOf(doc, id).forEach((p, i) => { if (i !== idx) hideParagraph(doc, p); });
+  // la forma (riempimento e bordo) resta nella base: nel livello solo il testo del paragrafo
+  const sh = findShape(doc, id), spPr = sh && desc1(sh, 'p', 'spPr');
+  if (spPr) {
+    for (const c of Array.from(spPr.children)) if (['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill', 'ln', 'effectLst'].includes(c.localName)) spPr.removeChild(c);
+    const after = Array.from(spPr.children).find(c => ['scene3d', 'sp3d', 'extLst'].includes(c.localName));
+    spPr.insertBefore(doc.createElementNS(NS.a, 'a:noFill'), after || null);
+    const ln = doc.createElementNS(NS.a, 'a:ln'); ln.appendChild(doc.createElementNS(NS.a, 'a:noFill')); spPr.insertBefore(ln, after || null);
+  }
 }
 function setBg(doc, hex) {
   const sld = doc.documentElement, cSld = desc1(doc, 'p', 'cSld');
@@ -373,7 +543,6 @@ async function importDeck(opt) {
       const part = slideParts[i];
       const xml = await readText(zz, part); const doc = parseXml(xml); const rels = await readRels(zz, part);
       const sld = doc.documentElement; const spTree = desc1(doc, 'p', 'spTree');
-      const timing = parseTiming(sld);
       const shapes = allShapes(spTree).map((el, z) => {
         const r = realShape(el);
         const o = { el, id: shapeId(el), name: shapeName(el), type: r.localName, z, top: el.parentNode === spTree, text: textOf(el), img: r.localName === 'pic' ? blipTarget(el, rels) : null };
@@ -390,6 +559,7 @@ async function importDeck(opt) {
         const xf = xfrmOf(el); o.rot = xf ? xf.rot : 0;
         return o;
       });
+      const timing = parseTiming(sld, id => { const x = shapes.find(q => q.id === id); return x && x.rect; });
       const mediaIds = new Set(shapes.filter(s => s.media).map(s => s.id));
       const anim = buildSteps(timing.effects, mediaIds);
       // note del relatore
@@ -440,8 +610,13 @@ async function importDeck(opt) {
       });
     }
     for (const s of S) if (s.anim.ids.length) {
-      pages.push({ slide: s.i, tag: { k: 'abase', n: s.n }, remove: [...s.timing.mediaHide, ...s.anim.ids] });
-      for (const id of s.anim.ids) for (const bg of ['000000', 'FFFFFF']) pages.push({ slide: s.i, tag: { k: 'alayer', n: s.n, id, bg }, keep: id, bg });
+      const whole = s.anim.ids.filter(id => !id.includes('#'));
+      const paras = {}; for (const id of s.anim.ids) if (id.includes('#')) { const [sp, p] = id.split('#'); (paras[sp] = paras[sp] || []).push(+p); }
+      pages.push({ slide: s.i, tag: { k: 'abase', n: s.n }, remove: [...s.timing.mediaHide, ...whole], hide: paras });
+      for (const id of s.anim.ids) for (const bg of ['000000', 'FFFFFF']) {
+        const [sp, p] = id.split('#');
+        pages.push({ slide: s.i, tag: { k: 'alayer', n: s.n, id, bg }, keep: sp, para: p == null ? null : +p, bg });
+      }
     }
 
     /* ---- pptx di lavoro ---- */
@@ -468,7 +643,8 @@ async function importDeck(opt) {
       let rid = 0;
       for (const pg of pages.filter(p => p.tag.k !== 'full')) {
         const s = S[pg.slide]; const d = parseXml(ser(s.doc)); stripTimingTrans(d);
-        if (pg.keep) { keepOnly(d, pg.keep); setBg(d, pg.bg); } else removeIds(d, pg.remove);
+        if (pg.keep) { keepOnly(d, pg.keep); if (pg.para != null) paraOnly(d, pg.keep, pg.para); setBg(d, pg.bg); }
+        else { removeIds(d, pg.remove); if (pg.hide) for (const sp of Object.keys(pg.hide)) hideParas(d, sp, pg.hide[sp]); }
         const n = ++maxN, part = `ppt/slides/slide${n}.xml`;
         modified.set(part, ser(d));
         // rels: come l'originale, senza note
@@ -587,7 +763,7 @@ async function importDeck(opt) {
       }
       if (s.anim.ids.length && res.abase[s.n]) {
         o.anim = { base: res.abase[s.n], layers: [], steps: s.anim.steps, initial: s.anim.initial };
-        const zOf = id => (s.shapes.find(x => x.id === id) || { z: 0 }).z;
+        const zOf = id => (s.shapes.find(x => x.id === id.split('#')[0]) || { z: 0 }).z + (id.includes('#') ? 0.001 * (1 + +id.split('#')[1]) : 0);
         for (const id of s.anim.ids) { const l = res.alayer[`${s.n}_${id}`]; if (l) o.anim.layers.push(Object.assign({ id, z: zOf(id) }, l)); }
         o.anim.layers.sort((p, q) => p.z - q.z);
         const have = new Set(o.anim.layers.map(l => l.id));

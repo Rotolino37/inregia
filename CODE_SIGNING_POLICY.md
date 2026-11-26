@@ -37,6 +37,7 @@ In detail:
 - InRegia does not collect, store or send personal data, usage data or telemetry.
 - The installer downloads only the components the user selects: the application package and the default music from this repository's GitHub releases, and LibreOffice from The Document Foundation (download.documentfoundation.org).
 - Inside the app, the same downloads happen only when the user presses the corresponding button.
+- Update check: only if the user agrees. At first start the app asks once whether to check for updates; the choice can be changed in Settings. When enabled, opening the library reads the list of releases from this repository on GitHub (api.github.com) and the list of LibreOffice versions from download.documentfoundation.org. Nothing about the user, the computer or the presentations is sent. Updates are installed only when the user presses "Update now".
 - Presentations and music stay on the user's computer.
 
 Third-party services involved in these downloads have their own privacy policies: [GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) and [The Document Foundation](https://www.documentfoundation.org/privacy).

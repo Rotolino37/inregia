@@ -29,7 +29,7 @@ const DIR = {
 };
 const SETTINGS_FILE = path.join(DATA, 'settings.json');
 const ICON = path.join(APP_DIR, 'assets', 'icon.png');
-const MANIFEST_VERSION = 3;
+const MANIFEST_VERSION = 4;
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|flac|opus|weba)$/i;
 const REPO = 'Rotolino37/inregia';
 /* Musica predefinita: un pacchetto per genere, pubblicato con ogni release (Opus 64 kbps). */
@@ -46,7 +46,7 @@ for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); } catch (e) {} };
-let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'beta', autoUpdateCheck: true, skipVersion: null }, readJson(SETTINGS_FILE, {}));
+let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'beta', autoUpdateCheck: null, skipVersion: null }, readJson(SETTINGS_FILE, {}));
 delete SETTINGS.autoProjector; // dalla beta 2 il proiettore si apre solo su richiesta
 const saveSettings = () => writeJson(SETTINGS_FILE, SETTINGS);
 
@@ -86,7 +86,8 @@ function deckList() {
     if (mf && mf.version === MANIFEST_VERSION) {
       if (!srcInfo) status = 'nosource';
       else status = (mf.sourceSize === srcInfo.size && Math.abs(mf.sourceMtime - srcInfo.mtime) < 2000) ? 'ready' : 'stale';
-    } else if (mf) status = 'old';
+    } else if (mf && mf.version === 3) status = srcInfo ? 'upgrade' : 'nosource'; // presentabile; reimportando si ottengono le nuove animazioni
+    else if (mf) status = 'old';
     return {
       id, name: (mf && mf.name) || src.name || id, sourcePath: src.path || null, status,
       slides: mf ? mf.slides.length : 0, media: mf ? mf.slides.reduce((a, s) => a + s.media.length, 0) : 0,
@@ -524,6 +525,8 @@ async function appCheck() {
 let autoChecked = false;
 async function autoCheck(w) {
   if (autoChecked || SETTINGS.autoUpdateCheck === false || process.env.INREGIA_NO_UPDATE_CHECK) return;
+  // nessuna connessione senza consenso: la prima volta lo si chiede nella libreria
+  if (SETTINGS.autoUpdateCheck == null) { if (w && !w.isDestroyed()) w.webContents.send('updates:consent'); return; }
   autoChecked = true;
   const [a, e] = await Promise.all([appCheck(), engineCheck().catch(() => null)]);
   const appNew = a.available && a.latest && a.latest.tag !== SETTINGS.skipVersion;
@@ -531,6 +534,7 @@ async function autoCheck(w) {
   if ((appNew || engNew) && w && !w.isDestroyed() && !pres) w.webContents.send('updates', { app: appNew ? a : null, engine: engNew ? e : null });
 }
 ipcMain.handle('update:check', async () => ({ app: await appCheck(), engine: await engineCheck() }));
+ipcMain.handle('update:consent', (e, yes) => { SETTINGS.autoUpdateCheck = !!yes; saveSettings(); if (yes) autoCheck(BrowserWindow.fromWebContents(e.sender)); return SETTINGS; });
 ipcMain.handle('update:skip', (e, tag) => { SETTINGS.skipVersion = tag || null; saveSettings(); return true; });
 ipcMain.handle('update:install', async e => {
   if (BUSY_UPD) return { ok: false, error: 'Aggiornamento già in corso' };

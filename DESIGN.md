@@ -35,6 +35,9 @@ Gold is reserved for the primary action of each surface (Avanti, Presenta, Impor
 - Fader: vertical, thumb 26x16, double click resets to 0 dB, wheel for fine steps, range silence to +12 dB.
 - Meter: LED segments green below -12 dB, yellow to -3 dB, red above.
 - Drop zone: dashed border, becomes solid gold with tinted fill on drag-over; always paired with a "Scegli file" button.
+- Filter chip: 32 px pill, s2 fill and line2 border; selected = gold border, gold-tinted fill, gold count. Multi-select; "Tutti i generi" clears the selection.
+- Screen picker: scaled map of the real display layout, one card per screen with its number; selected = gold border. The same number appears large on each physical screen while the dialog is open.
+- Button contents are updated only when they change (never re-rendered on a timer) and icons/labels inside buttons ignore pointer events, so a click is never lost.
 
 ## Motion
 - 120 ms hover/press, 180 ms tab and panel changes, ease `cubic-bezier(0.16,1,0.3,1)`.

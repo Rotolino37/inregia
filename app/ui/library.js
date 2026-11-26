@@ -7,7 +7,7 @@ document.querySelector('#dropover .ic-slot').outerHTML = ic('upload');
 
 const STATUS = {
   ready: ['Pronta', 'ok'], stale: ['File modificato', 'warn'], nosource: ['File originale non trovato', 'plain'],
-  old: ['Da reimportare', 'warn'], broken: ['Importazione incompleta', 'warn'], importing: ['In importazione', 'gold'],
+  old: ['Da reimportare', 'warn'], upgrade: ['Animazioni migliorabili', 'gold'], broken: ['Importazione incompleta', 'warn'], importing: ['In importazione', 'gold'],
 };
 
 /* ------------------------------------------------------------ dati */
@@ -62,7 +62,7 @@ function renderDecks() {
 }
 function card(d) {
   const el = document.createElement('article'); el.className = 'deck'; el.dataset.id = d.id;
-  const st = STATUS[d.status] || STATUS.broken, ready = d.status === 'ready' || d.status === 'nosource' || d.status === 'stale';
+  const st = STATUS[d.status] || STATUS.broken, ready = d.status === 'ready' || d.status === 'nosource' || d.status === 'stale' || d.status === 'upgrade';
   const meta = [];
   if (d.slides) meta.push(d.slides + ' slide');
   if (d.media) meta.push(d.media + (d.media === 1 ? ' video/audio' : ' video e audio'));
@@ -71,10 +71,11 @@ function card(d) {
   el.innerHTML = `<div class="thumb" style="${d.thumb ? `background-image:url('${d.thumb}?${encodeURIComponent(d.imported || '')}')` : ''}">${d.thumb ? '' : `<div class="ph">${ic('film')}</div>`}<span class="pill ${st[1]}">${st[0]}</span></div>
     <div class="dbody"><div class="dname" title="${esc(d.name)}">${esc(d.name)}</div><div class="dmeta">${meta.map(m => `<span>${esc(m)}</span>`).join('')}</div>
     ${d.status === 'stale' ? `<div class="dwarn">Il file .pptx è cambiato dopo l'importazione.</div>` : ''}
+    ${d.status === 'upgrade' ? `<div class="dwarn">Importata con una versione precedente: aggiorna per avere animazioni per paragrafo, percorsi, rotazioni e altri effetti.</div>` : ''}
     ${d.warnings && d.warnings.length ? `<div class="dwarn" title="${esc(d.warnings.join('\n'))}">${esc(d.warnings[0])}${d.warnings.length > 1 ? ` (e altri ${d.warnings.length - 1})` : ''}</div>` : ''}
     <div class="dact">
       ${ready ? `<button class="btn primary" data-a="go">${ic('play')}Presenta</button>` : `<button class="btn" data-a="reimp">${ic('refresh')}Importa di nuovo</button>`}
-      ${d.status === 'stale' ? `<button class="btn" data-a="reimp" title="Aggiorna dal file modificato">${ic('refresh')}Aggiorna</button>` : ''}
+      ${d.status === 'stale' || d.status === 'upgrade' ? `<button class="btn" data-a="reimp" title="Importa di nuovo il file .pptx">${ic('refresh')}Aggiorna</button>` : ''}
       <button class="btn icon" data-a="mus" title="Musica di questa presentazione">${ic('music')}</button>
       <button class="btn icon" data-a="more" title="Altre azioni" aria-haspopup="menu">${ic('dots')}</button></div></div>`;
   if (d.job) {
@@ -187,7 +188,7 @@ function renderSettings() {
   const v = $('v-settings');
   v.querySelectorAll('[data-k]').forEach(el => {
     const k = el.dataset.k;
-    if (el.type === 'checkbox') { el.checked = k === 'videoMirror' || k === 'autoUpdateCheck' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
+    if (el.type === 'checkbox') { el.checked = k === 'videoMirror' ? s[k] !== false : !!s[k]; el.onchange = () => DP.invoke('settings:set', { [k]: el.checked }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
     else { el.value = String(s[k] || 1920); el.onchange = () => DP.invoke('settings:set', { [k]: +el.value }).then(x => { D.settings = x; toast('Impostazione salvata', 'ok', 1800); }); }
   });
   $('sEng').onclick = () => e.found && e.kind === 'bundled' ? checkUpdates(true) : job('Installazione del motore', 'engine:download', 'Motore installato.');
@@ -259,6 +260,18 @@ async function updateEngine(e) {
   const r = await job('Aggiornamento di LibreOffice', 'engine:update', null);
   if (r.ok) { toast(r.unchanged ? 'LibreOffice è già aggiornato' : 'LibreOffice aggiornato alla versione ' + ((r.info && r.info.installed) || e.latest), 'ok', 5000); UPD = Object.assign(UPD || {}, { engine: r.info || UPD.engine }); paintUpd(UPD); }
 }
+DP.on('updates:consent', () => {
+  if (document.querySelector('.dlg-bg.upd')) return;
+  const bg = document.createElement('div'); bg.className = 'dlg-bg upd';
+  bg.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="ucT"><h2 id="ucT">${ic('refresh')}Controllare gli aggiornamenti?</h2><div class="body">
+    <p>All'apertura della libreria InRegia può verificare se ci sono nuove versioni di InRegia e di LibreOffice e proporti di installarle con un clic.</p>
+    <p class="sec">Vengono contattati solo GitHub e The Document Foundation, per leggere l'elenco delle versioni. Nessun dato tuo o delle presentazioni viene inviato. Puoi cambiare idea in Impostazioni.</p></div>
+    <div class="row"><button class="btn" data-a="no">No</button><button class="btn primary" data-a="yes">Sì, controlla all'avvio</button></div></div>`;
+  const done = yes => { bg.remove(); DP.invoke('update:consent', yes).then(x => { D.settings = x; if (view === 'settings') renderSettings(); }); };
+  bg.querySelector('[data-a=no]').onclick = () => done(false);
+  bg.querySelector('[data-a=yes]').onclick = () => done(true);
+  document.body.appendChild(bg); bg.querySelector('[data-a=yes]').focus();
+});
 DP.on('updates', u => { UPD = Object.assign(UPD || {}, u.app ? { app: u.app } : {}, u.engine ? { engine: u.engine } : {}); updatesDialog(u); });
 
 /* ------------------------------------------------------------ navigazione */
