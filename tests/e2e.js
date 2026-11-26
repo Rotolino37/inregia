@@ -40,7 +40,9 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
     env.INREGIA_INSTALL = inst;
     launch = { executablePath: require(path.join(APP, 'node_modules', 'electron')), args: process.platform === 'linux' ? ['--no-sandbox', APP] : [APP], env };
   }
-  const app = await _electron.launch(launch);
+  let app;
+  try { app = await _electron.launch(launch); }
+  catch (e) { R.ok = false; R.errors.push('Avvio dell\'app non riuscito: ' + String(e && e.stack || e)); fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(R, null, 1)); console.log('ERRORE avvio', e); process.exit(1); }
   const pageErr = [];
   const hook = w => { w.on('pageerror', e => pageErr.push(w.url().split('/').pop().split('?')[0] + ': ' + e.message)); w.on('console', m => { if (m.type() === 'error') pageErr.push(w.url().split('/').pop().split('?')[0] + ' console: ' + m.text()); }); };
   app.on('window', hook);

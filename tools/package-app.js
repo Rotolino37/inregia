@@ -72,7 +72,14 @@ function copy(src, dst, filter) {
   console.log('Copia applicazione');
   const dst = path.join(OUT, 'resources', 'app');
   fs.mkdirSync(dst, { recursive: true });
-  for (const e of ['main.js', 'preload.js', 'importer.js', 'ui', 'assets']) copy(path.join(APP, e), path.join(dst, e));
+  // tutti i moduli .js dell'app (main, preload, importer, updater...) più interfaccia e risorse
+  const mods = fs.readdirSync(APP).filter(f => f.endsWith('.js'));
+  for (const e of [...mods, 'ui', 'assets']) copy(path.join(APP, e), path.join(dst, e));
+  // ogni require('./...') dei moduli copiati deve esistere nel pacchetto
+  for (const m of mods) for (const r of fs.readFileSync(path.join(APP, m), 'utf8').matchAll(/require\('\.\/([^']+)'\)/g)) {
+    const f = path.join(dst, r[1].endsWith('.js') ? r[1] : r[1] + '.js');
+    if (!fs.existsSync(f)) throw new Error('Modulo mancante nel pacchetto: ' + r[1]);
+  }
   fs.writeFileSync(path.join(dst, 'package.json'), JSON.stringify({ name: pkg.name, productName: pkg.productName, version: VERSION, main: 'main.js', license: pkg.license }, null, 1));
   // dipendenze di produzione
   const list = cp.execSync('npm ls --omit=dev --parseable --all', { cwd: APP, encoding: 'utf8' }).split(/\r?\n/).filter(p => p && p !== APP && p.includes('node_modules'));
