@@ -8,6 +8,11 @@
 
 Chi ha una beta: dalla beta 2 in poi basta "Aggiorna" in Impostazioni > Aggiornamenti; dalla beta 1 si installa sopra. Presentazioni e musica aggiunta restano.
 
+## Novità della v2026.12.2
+
+- **Lingue**: interfaccia e installer in italiano, inglese, tedesco, francese e spagnolo. Si usa la lingua di Windows (inglese se non è tra queste); si cambia in Impostazioni > Sistema > Lingua.
+- **Musica in pausa durante i video**: con "Abbassa la musica durante video e audio delle slide" impostato a "fino al silenzio", al termine della dissolvenza la musica va in pausa; quando il video finisce riparte dallo stesso punto, sempre in dissolvenza.
+
 ## Novità della v2026.12.1
 
 - **Relatore fermo**: cliccando gli interruttori "Usa" nella scheda Musica l'intera finestra del relatore poteva spostarsi verso l'alto. Corretto: la finestra non scorre più, scorrono solo i pannelli.
@@ -23,6 +28,7 @@ Aggiornamento: Impostazioni > Aggiornamenti > "Aggiorna", oppure installa sopra.
 - **Video e audio**: non partono mai da soli; Play con un clic, anteprima del video nel relatore, avviso se passi oltre un video non avviato.
 - **Regia audio**: mixer con fader fino a +12 dB, VU meter, equalizzatore a 10 bande con 21 stili, musica di sottofondo con coda, dissolvenza incrociata e abbassamento automatico durante i video.
 - **Musica**: predefinita (7 generi, filtro per genere), globale e per presentazione, con trascinamento dei file.
+- **Cinque lingue**: italiano, inglese, tedesco, francese, spagnolo.
 - **Aggiornamenti con un clic** per InRegia e LibreOffice, solo se acconsenti al controllo.
 
 ## Limiti noti

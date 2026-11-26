@@ -43,6 +43,8 @@ jobs:
         run: npm ci
       - name: Test end-to-end
         run: xvfb-run -a -s "-screen 0 1920x1080x24" node tests/e2e.js
+      - name: Test traduzioni
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" node tests/i18n.js
       - name: Report test
         if: always()
         uses: actions/upload-artifact@v4

@@ -7,6 +7,7 @@ const path = require('path');
 const cp = require('child_process');
 const url = require('url');
 const UPD = require('./updater');
+const { I18N_DICT } = require('./ui/i18n-dict.js');
 
 /* ---------------------------------------------------------------- percorsi
  * INSTALL: cartella del programma (sola lettura se in Programmi)
@@ -47,7 +48,7 @@ for (const d of [DIR.decks, DIR.global]) try { fs.mkdirSync(d, { recursive: true
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); } catch (e) {} };
-let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'stable', autoUpdateCheck: null, skipVersion: null, renderEngine: 'auto' }, readJson(SETTINGS_FILE, {}));
+let SETTINGS = Object.assign({ renderWidth: 1920, compatGpu: false, lockOnOpen: false, videoMirror: true, updateChannel: 'stable', autoUpdateCheck: null, skipVersion: null, renderEngine: 'auto', language: 'auto' }, readJson(SETTINGS_FILE, {}));
 delete SETTINGS.autoProjector; // il proiettore si apre solo su richiesta
 const saveSettings = () => writeJson(SETTINGS_FILE, SETTINGS);
 
@@ -123,6 +124,34 @@ function enqueue(paths) {
 }
 let running = false;
 function libNotify() { if (lib && !lib.isDestroyed()) lib.webContents.send('lib:changed'); }
+/* ---------------------------------------------------------------- lingua
+   Inglese predefinito; italiano, tedesco, francese e spagnolo se è la lingua di Windows o se scelti nelle impostazioni. */
+const LANGS = ['en', 'it', 'de', 'fr', 'es'];
+function uiLang() {
+  const forced = process.env.INREGIA_LANG || (SETTINGS.language !== 'auto' ? SETTINGS.language : null);
+  if (forced && LANGS.includes(forced)) return forced;
+  const sys = (app.getPreferredSystemLanguages ? app.getPreferredSystemLanguages()[0] : null) || app.getLocale() || 'en';
+  const l = String(sys).slice(0, 2).toLowerCase();
+  return LANGS.includes(l) ? l : 'en';
+}
+// testi del processo principale (finestre di dialogo, titoli)
+function T(s) {
+  const L = uiLang(); if (L === 'it') return s;
+  const e = I18N_DICT.strings[s]; if (e && e[L]) return e[L];
+  for (const [src, tr] of I18N_DICT.patterns) {
+    const ord = []; const re = new RegExp('^' + src.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{(\d)\}/g, (m, n) => { ord.push(+n); return '([\\s\\S]+?)'; }) + '$');
+    const m = re.exec(s); if (m && tr[L]) { const v = []; ord.forEach((n, i) => { v[n] = m[i + 1]; }); return tr[L].replace(/\{(\d)\}/g, (x, n) => v[+n]); }
+  }
+  return s;
+}
+ipcMain.on('i18n:lang', e => { e.returnValue = { lang: uiLang(), harvest: !!process.env.INREGIA_I18N_HARVEST }; });
+ipcMain.on('i18n:miss', (e, list) => { try { fs.appendFileSync(process.env.INREGIA_I18N_HARVEST, list.map(x => JSON.stringify(x)).join('\n') + '\n'); } catch (er) {} });
+ipcMain.handle('i18n:set', (e, l) => {
+  SETTINGS.language = l === 'auto' || LANGS.includes(l) ? l : 'auto'; saveSettings();
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && w !== aud) w.webContents.reload();
+  return uiLang();
+});
+
 /* PowerPoint installato? Se sì converte lui (stesso motore che ha creato le slide). */
 let PPT = null;
 function detectPowerPoint() {
@@ -323,7 +352,7 @@ function openPresenter(id) {
   pres.on('close', e => {
     if (quitting || pres._back) return;
     e.preventDefault();
-    dialog.showMessageBox(pres, { type: 'question', buttons: ['Chiudi InRegia', 'Annulla'], defaultId: 1, cancelId: 1, title: 'InRegia', message: 'Chiudere la presentazione?', detail: 'Si chiude anche lo schermo del proiettore.' })
+    dialog.showMessageBox(pres, { type: 'question', buttons: [T('Chiudi InRegia'), T('Annulla')], defaultId: 1, cancelId: 1, title: 'InRegia', message: T('Chiudere la presentazione?'), detail: T('Si chiude anche lo schermo del proiettore.') })
       .then(r => { if (r.response === 0) { quitting = true; app.quit(); } });
   });
   pres.on('closed', () => { pres = null; identify(false); if (aud) { aud.destroy(); aud = null; } if (psb != null) { powerSaveBlocker.stop(psb); psb = null; } if (!lib && !quitting) app.quit(); });
@@ -334,7 +363,7 @@ function openPresenter(id) {
 
 /* Il proiettore "chiuso" resta una finestra attiva ma invisibile: audio e video non vengono mai sospesi. */
 function createAudience() {
-  aud = new BrowserWindow({ show: false, frame: false, transparent: false, backgroundColor: '#000000', icon: ICON, title: 'InRegia - Proiettore', skipTaskbar: true, focusable: false,
+  aud = new BrowserWindow({ show: false, frame: false, transparent: false, backgroundColor: '#000000', icon: ICON, title: T('InRegia - Proiettore'), skipTaskbar: true, focusable: false,
     fullscreenable: true, resizable: true, webPreferences: prefs() });
   aud.loadFile(path.join(APP_DIR, 'ui', 'audience.html'));
   aud.once('ready-to-show', () => park());
@@ -424,7 +453,7 @@ function notifyAud() {
 ipcMain.handle('lib:list', () => ({ decks: deckList(), engine: engineStatus(), settings: SETTINGS, version: app.getVersion(),
   defaultMusic: musicSources(null).default.reduce((a, c) => a + c.tracks.length, 0) }));
 ipcMain.handle('lib:pick', async e => {
-  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: 'Importa presentazioni', filters: [{ name: 'Presentazioni PowerPoint', extensions: ['pptx'] }], properties: ['openFile', 'multiSelections'] });
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: T('Importa presentazioni'), filters: [{ name: T('Presentazioni PowerPoint'), extensions: ['pptx'] }], properties: ['openFile', 'multiSelections'] });
   return r.canceled ? [] : r.filePaths;
 });
 ipcMain.handle('lib:import', (e, paths) => enqueue(paths || []));
@@ -439,7 +468,7 @@ function fontList() {
 ipcMain.handle('fonts:info', async () => ({ fonts: fontList(), dir: DIR.fonts, powerpoint: await detectPowerPoint(), engine: SETTINGS.renderEngine }));
 ipcMain.handle('fonts:add', async (e, paths) => {
   if (!paths || !paths.length) {
-    const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: 'Aggiungi font', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Font', extensions: ['ttf', 'otf', 'ttc', 'otc'] }] });
+    const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: T('Aggiungi font'), properties: ['openFile', 'multiSelections'], filters: [{ name: 'Font', extensions: ['ttf', 'otf', 'ttc', 'otc'] }] });
     if (r.canceled) return { added: [], rejected: [] };
     paths = r.filePaths;
   }
@@ -474,7 +503,7 @@ ipcMain.handle('engine:download', async e => {
   catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 ipcMain.handle('engine:msi', async e => {
-  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: 'File di installazione di LibreOffice (.msi)', filters: [{ name: 'LibreOffice MSI', extensions: ['msi'] }], properties: ['openFile'] });
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: T('File di installazione di LibreOffice (.msi)'), filters: [{ name: 'LibreOffice MSI', extensions: ['msi'] }], properties: ['openFile'] });
   if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
   try {
     fs.mkdirSync(DIR.engineUser, { recursive: true });
@@ -485,7 +514,7 @@ ipcMain.handle('engine:msi', async e => {
 });
 ipcMain.handle('music:sources', (e, id) => musicSources(id || null));
 ipcMain.handle('music:pick', async e => {
-  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: 'Aggiungi musica', filters: [{ name: 'Audio', extensions: ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'flac', 'opus', 'weba'] }], properties: ['openFile', 'multiSelections'] });
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: T('Aggiungi musica'), filters: [{ name: 'Audio', extensions: ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'flac', 'opus', 'weba'] }], properties: ['openFile', 'multiSelections'] });
   return r.canceled ? [] : r.filePaths;
 });
 ipcMain.handle('music:add', (e, target, files) => { try { return Object.assign({ ok: true }, addMusic(target, files || [])); } catch (err) { return { ok: false, error: String(err.message || err) }; } });

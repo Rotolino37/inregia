@@ -633,7 +633,7 @@ function syncAudience() {
   DP.invoke('aud:state');
   requestAnimationFrame(frame);
   if (ST.n > 1 && ST.n <= N) dialogBox('Riprendere la presentazione?', `<p>L'ultima volta eri alla slide ${ST.n}.</p>`, [['Dall\'inizio', '', null, ['Escape', 'Home']], [`Riprendi dalla slide ${ST.n}`, 'primary', () => go(ST.n, 'jump'), ['Enter']]], 'play');
-  if (M.warnings && M.warnings.length) toast(M.warnings.join(' | '), 'warn', 7000);
+  if (M.warnings && M.warnings.length) toast(M.warnings.map(T).join(' | '), 'warn', 7000);
 })();
 
 /* La finestra del relatore resta sempre ferma: se qualcosa (focus, browser) la fa scorrere, torna a posto. */

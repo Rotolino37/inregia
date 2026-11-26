@@ -39,7 +39,10 @@ Updates: if you agree (InRegia asks once), the library checks for new versions a
 - Default: over an hour of original music for each of 7 genres (Lofi Chill, Lounge, Ambient, Piano, Acoustic, Corporate, Cinematic), Opus at 64 kbps (about 37 MB per genre). Filter by genre; in the presenter the selected genres are the ones that feed the queue. Missing genres can be downloaded from the Music tab.
 - Global: tracks you add for every presentation.
 - Presentation: tracks for a single presentation.
-- Add tracks by dragging them in or picking several at once. Editable queue, crossfade (0-15 s), shuffle, repeat, fade-out, automatic ducking during videos.
+- Add tracks by dragging them in or picking several at once. Editable queue, crossfade (0-15 s), shuffle, repeat, fade-out, automatic ducking during videos. With ducking set to "to silence" the music pauses at the end of the fade and resumes, fading in, when the video ends.
+
+**Languages**
+- Interface and installer in English, Italian, German, French and Spanish. The Windows language is used (English if it is not one of these); change it in Settings > System > Language.
 
 ## Where files live
 
@@ -58,6 +61,8 @@ Windows 10 or 11, 64-bit.
 ```
 cd app && npm ci && npm start                 # run in development
 node tests/e2e.js                             # end-to-end tests (needs LibreOffice)
+node tests/i18n.js                            # translation coverage (en, de, fr, es)
+python tools/i18n/build.py                    # rebuild app/ui/i18n-dict.js from tools/i18n/ui.py
 node tools/package-app.js                     # Windows package in dist/
 python tools/music/generate.py --zipdir dist                    # 7 genre packages
 ISCC installer/inregia.iss                    # installer (Inno Setup 6)

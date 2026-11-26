@@ -72,7 +72,7 @@ function card(d) {
     <div class="dbody"><div class="dname" title="${esc(d.name)}">${esc(d.name)}</div><div class="dmeta">${meta.map(m => `<span>${esc(m)}</span>`).join('')}</div>
     ${d.status === 'stale' ? `<div class="dwarn">Il file .pptx è cambiato dopo l'importazione.</div>` : ''}
     ${d.status === 'upgrade' ? `<div class="dwarn">Importata con una versione precedente: aggiorna per avere animazioni per paragrafo, percorsi, rotazioni e altri effetti.</div>` : ''}
-    ${d.warnings && d.warnings.length ? `<div class="dwarn" title="${esc(d.warnings.join('\n'))}">${esc(d.warnings[0])}${d.warnings.length > 1 ? ` (e altri ${d.warnings.length - 1})` : ''}</div>` : ''}
+    ${d.warnings && d.warnings.length ? `<div class="dwarn" title="${esc(d.warnings.map(T).join('\n'))}">${esc(d.warnings[0])}${d.warnings.length > 1 ? ` (e altri ${d.warnings.length - 1})` : ''}</div>` : ''}
     <div class="dact">
       ${ready ? `<button class="btn primary" data-a="go">${ic('play')}Presenta</button>` : `<button class="btn" data-a="reimp">${ic('refresh')}Importa di nuovo</button>`}
       ${d.status === 'stale' || d.status === 'upgrade' ? `<button class="btn" data-a="reimp" title="Importa di nuovo il file .pptx">${ic('refresh')}Aggiorna</button>` : ''}
@@ -186,6 +186,7 @@ function renderSettings() {
     <div class="srow"><div class="l"><b>Ricevi anche le versioni beta</b><span>Le beta arrivano prima ma possono contenere errori</span></div><label class="switch"><input type="checkbox" id="sBeta"><i></i></label></div>
     <div class="srow"><div class="l"><b>Controlla all'avvio</b><span>Solo nella libreria, mai durante una presentazione</span></div><label class="switch"><input type="checkbox" data-k="autoUpdateCheck"><i></i></label></div>
     <h2 class="sgroup">Sistema</h2>
+    <div class="srow"><div class="l"><b>Lingua</b><span>Inglese se la lingua di Windows non è tra quelle disponibili</span></div><select class="sel" id="sLang"><option value="auto">Automatica (lingua di Windows)</option><option value="en" data-noi18n>English</option><option value="it" data-noi18n>Italiano</option><option value="de" data-noi18n>Deutsch</option><option value="fr" data-noi18n>Français</option><option value="es" data-noi18n>Español</option></select></div>
     <div class="srow"><div class="l"><b>Modalità compatibilità grafica</b><span>Per schede video problematiche. Richiede il riavvio di InRegia</span></div><label class="switch"><input type="checkbox" data-k="compatGpu"><i></i></label></div>
     <div class="srow"><div class="l"><b>Cartella dei dati</b><span>Presentazioni importate, musica aggiunta, impostazioni</span></div><button class="btn sm" id="sData">${ic('folder')}Apri cartella</button></div>
     <div class="srow"><div class="l"><b>Versione</b><span>InRegia ${esc(D.version)}</span></div></div></div>`;
@@ -199,6 +200,8 @@ function renderSettings() {
   $('sEng').onclick = () => e.found && e.kind === 'bundled' ? checkUpdates(true) : job('Installazione del motore', 'engine:download', 'Motore installato.');
   $('sData').onclick = () => DP.invoke('open:data');
   $('sUpd').onclick = () => checkUpdates(true);
+  $('sLang').value = s.language || 'auto';
+  $('sLang').onchange = ev => DP.invoke('i18n:set', ev.target.value);
   $('sFontAdd').onclick = () => addFonts();
   $('sFontOpen').onclick = () => DP.invoke('fonts:open');
   DP.invoke('fonts:info').then(fi => {

@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld('DP', {
   on: (ch, cb) => { const f = (e, d) => cb(d); ipcRenderer.on(ch, f); return () => ipcRenderer.removeListener(ch, f); },
   pathOf: file => { try { return webUtils.getPathForFile(file); } catch (e) { return ''; } },
   platform: process.platform,
+  ...(() => { try { const r = ipcRenderer.sendSync('i18n:lang'); return { lang: r.lang, i18nHarvest: !!r.harvest }; } catch (e) { return { lang: 'it' }; } })(),
 });

@@ -51,7 +51,7 @@
       if (r.added.length) parts.push(r.added.length === 1 ? 'Aggiunto 1 brano' : `Aggiunti ${r.added.length} brani`);
       if (r.skipped.length) parts.push(`${r.skipped.length} già presenti`);
       if (bad) parts.push(`${bad} file ignorati`);
-      toast(parts.join(', '), r.added.length ? 'ok' : 'warn');
+      toast(parts.map(T).join(', '), r.added.length ? 'ok' : 'warn');
       await this.load();
     }
     section(key, title, desc, tracks, target) {

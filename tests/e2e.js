@@ -28,7 +28,8 @@ async function shot(page, name) { if (SHOTS) await page.screenshot({ path: path.
   const feed = path.join(tmp, 'feed.json');
   const rel = (tag, pre) => ({ tag, name: 'InRegia ' + tag, prerelease: pre, notes: '## Novità\n- Prova ' + tag, assets: [{ name: 'InRegia-Setup-' + tag + '.exe', url: 'https://example.invalid/s.exe' }] });
   fs.writeFileSync(feed, JSON.stringify([rel('v2026.11', false), rel('v2099.0', false), rel('v2099.1-beta.1', true), rel('v2099.1-beta.0', true)]));
-  const env = Object.assign({}, process.env, { INREGIA_DATA: data, INREGIA_UPDATE_FEED: feed, INREGIA_CLOUDFONTS: path.join(FIX, 'cloudfonts') });
+  // i controlli sui testi sono in italiano: lingua fissa, indipendente da quella del sistema
+  const env = Object.assign({ INREGIA_LANG: 'it' }, process.env, { INREGIA_DATA: data, INREGIA_UPDATE_FEED: feed, INREGIA_CLOUDFONTS: path.join(FIX, 'cloudfonts') });
   if (!process.env.INREGIA_EXE) env.INREGIA_LO_LATEST = '99.1.0';
   let launch;
   if (process.env.INREGIA_EXE) launch = { executablePath: process.env.INREGIA_EXE, args: [], env };
